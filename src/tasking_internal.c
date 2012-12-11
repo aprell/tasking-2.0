@@ -11,8 +11,8 @@
 #define UNUSED __attribute__((unused))
 
 // Shared state
-int *tasking_finished;
-int *num_tasks_exec;
+atomic_t *tasking_finished;
+atomic_t *num_tasks_exec;
 int num_workers;
 
 // Private state
@@ -32,8 +32,6 @@ static void *worker_entry_fn(void *args)
 	ID = *(int *)args;
 	set_current_task(NULL);
 	num_tasks_exec_worker = 0;
-
-	printf("Worker %2d bound to CPU %2d\n", ID, get_thread_affinity());
 
 	RT_init();
 	tasking_internal_barrier();
@@ -65,8 +63,8 @@ int tasking_internal_init(int *argc UNUSED, char ***argv UNUSED)
 	//tasking_finished = (int *)malloc(sizeof(int));
 	//num_tasks_exec   = (int *)malloc(sizeof(int));
 
-	tasking_finished = (int *)malloc(64 * sizeof(int));
-	num_tasks_exec   = (int *)malloc(64 * sizeof(int));
+	tasking_finished = (atomic_t *)malloc(64 * sizeof(atomic_t));
+	num_tasks_exec   = (atomic_t *)malloc(64 * sizeof(atomic_t));
 
 	atomic_set(tasking_finished, 0);
 	atomic_set(num_tasks_exec, 0);
@@ -81,7 +79,6 @@ int tasking_internal_init(int *argc UNUSED, char ***argv UNUSED)
 
 	// Bind master thread to CPU 0
 	set_thread_affinity(0);
-	printf("Worker %2d bound to CPU %2d\n", ID, get_thread_affinity());
 	
 	// Create num_workers-1 worker threads
 	for (i = 1; i < num_workers; i++) {
@@ -121,10 +118,8 @@ int tasking_internal_statistics(void)
 	MASTER {
 		printf("\n");
 		printf("/========================================\\\n");
-		//printf("| Idle workers: %d\n", tasking_idle_workers());
 		printf("| Tasks executed: %d\n", tasking_tasks_exec());
 		printf("\\========================================/\n");
-		//fflush(stdout);
 	}
 
 	tasking_internal_barrier();

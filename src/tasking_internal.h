@@ -11,8 +11,8 @@
 #define WORKER if (ID != MASTER_ID)
 
 // Shared state
-extern int *tasking_finished;
-extern int *num_tasks_exec;
+extern atomic_t *tasking_finished;
+extern atomic_t *num_tasks_exec;
 extern int num_workers;
 
 // Private state
