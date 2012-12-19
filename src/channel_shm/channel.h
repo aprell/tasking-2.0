@@ -9,8 +9,8 @@ typedef struct SHM_channel Channel;
 struct SHM_channel;
 
 enum {
-	UNBUF = 0, B = 0,	// Unbuffered (blocking) channel
-	BUF = 1, NB = 1		// Buffered (nonblocking) channel
+	channel_UNBUF = 0, channel_B = 0,	// Unbuffered (blocking) channel
+	channel_BUF = 1, channel_NB = 1		// Buffered (nonblocking) channel
 };
 
 // Different channel implementations, in order of decreasing generality
