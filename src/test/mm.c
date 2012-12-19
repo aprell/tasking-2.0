@@ -285,7 +285,7 @@ void __block_matmul(double C[BSIZE][BSIZE], double A[BSIZE][BSIZE], double B[BSI
 	int i, j, k;
 
 	for (i = 0; i < BSIZE; i++)
-		for (j = 0; j < BSIZE; j++) 
+		for (j = 0; j < BSIZE; j++)
 			for (k = 0; k < BSIZE; k++)
 				C[i][j] += A[i][k] * B[k][j];
 }
@@ -307,6 +307,7 @@ void block_matmul_loop(int i, int k)
 	for (j = s; j < e; j++) {
 		block_matmul(i, j, k);
 		RT_loop_split(j+1, &e);
+		(void)RT_check_for_steal_requests();
 	}
 }
 
