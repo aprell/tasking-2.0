@@ -174,6 +174,33 @@ int uts_numChildren(Node *parent)
 #include "async.h"
 #include "chanref.h"
 
+#define FREE_LIST_SIZE 100000
+
+static PRIVATE chan free_list[FREE_LIST_SIZE];
+static PRIVATE unsigned int free_list_idx;
+
+// Instead of calling free...
+static inline bool push_to_free_list(chan c)
+{
+       if (free_list_idx == FREE_LIST_SIZE) {
+               return false;
+       } else {
+               free_list[free_list_idx++] = c;
+               return true;
+       }
+}
+
+// Instead of calling malloc...
+static inline bool pop_from_free_list(chan *c)
+{
+       if (free_list_idx == 0) {
+               return false;
+       } else {
+               *c = free_list[--free_list_idx];
+               return true;
+       }
+}
+
 unsigned long long parTreeSearch(int, Node *, int);
 unsigned long long seqTreeSearch(int, Node *, int);
 
@@ -214,12 +241,16 @@ unsigned long long parTreeSearch(int depth, Node *parent, int numChildren)
 		}
 
 		nodePtr->numChildren = uts_numChildren(nodePtr);
+		if (!pop_from_free_list(&c[i]))
+			chanref_set(&c[i], channel_alloc(sizeof(unsigned long long), 1, SPSC));
 		chanref_set(&c[i], channel_alloc(sizeof(unsigned long long), 1, SPSC));
 		ASYNC(parTreeSearch, depth+1, nodePtr, nodePtr->numChildren, c[i]);
 	}
 
 	for (i = 0; i < numChildren; i++) {
 		TASKING_FORCE_FUTURE(chanref_get(c[i]), &partialCount[i]);
+		if (!push_to_free_list(c[i]))
+			channel_free(chanref_get(c[i]));
 		channel_free(chanref_get(c[i]));
 		subtreesize += partialCount[i];
 	}
