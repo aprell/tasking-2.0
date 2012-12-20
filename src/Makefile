@@ -30,6 +30,8 @@ qsort.c \
 barrier.c \
 mm.c \
 nbody3.c \
+uts.c brg_sha1.c \
+bots_common.c bots_main.c \
 $(channel_SRCS) \
 $(tasking_SRCS) \
 $(runtime_SRCS)
@@ -38,7 +40,7 @@ libtasking_SRCS = $(runtime_SRCS) $(channel_SRCS) $(tasking_SRCS)
 
 #//// ALL PROGRAMS /////////////////////////////////////////////////////////#
 
-PROGS = sum fibgen looptest spc bpc fib-like qsort barrier mm nbody3
+PROGS = sum fibgen looptest spc bpc fib-like qsort barrier mm nbody3 uts
 
 #//// BENCHMARK PROGRAMS ///////////////////////////////////////////////////#
 
@@ -49,6 +51,8 @@ qsort_SRCS 		= qsort.c $(libtasking_SRCS)
 mm_SRCS 		= mm.c $(libtasking_SRCS)
 nbody3_SRCS 	= nbody3.c $(libtasking_SRCS)
 nbody3_LIBS	    = m
+uts_SRCS		= uts.c brg_sha1.c bots_common.c bots_main.c $(libtasking_SRCS)
+uts_LIBS		= m
 
 #//// TEST PROGRAMS ////////////////////////////////////////////////////////#
 
@@ -59,7 +63,7 @@ fibgen_SRCS 	= fibgen.c $(libtasking_SRCS)
 looptest_SRCS	= looptest.c $(libtasking_SRCS)
 barrier_SRCS 	= barrier.c $(libtasking_SRCS)
 
-VPATH += channel_shm test
+VPATH += channel_shm test test/bots test/bots/uts
 
 test: $(PROGS)
 
