@@ -29,6 +29,7 @@ fib-like.c \
 qsort.c \
 barrier.c \
 mm.c \
+lu.c \
 nbody3.c \
 uts.c brg_sha1.c \
 bots_common.c bots_main.c \
@@ -40,7 +41,7 @@ libtasking_SRCS = $(runtime_SRCS) $(channel_SRCS) $(tasking_SRCS)
 
 #//// ALL PROGRAMS /////////////////////////////////////////////////////////#
 
-PROGS = sum fibgen looptest spc bpc fib-like qsort barrier mm nbody3 uts
+PROGS = sum fibgen looptest spc bpc fib-like qsort barrier mm lu nbody3 uts
 
 #//// BENCHMARK PROGRAMS ///////////////////////////////////////////////////#
 
@@ -49,6 +50,7 @@ bpc_SRCS 		= bpc.c $(libtasking_SRCS)
 fib_like_SRCS 	= fib-like.c $(libtasking_SRCS)
 qsort_SRCS 		= qsort.c $(libtasking_SRCS)
 mm_SRCS 		= mm.c $(libtasking_SRCS)
+lu_SRCS 		= lu.c $(libtasking_SRCS)
 nbody3_SRCS 	= nbody3.c $(libtasking_SRCS)
 nbody3_LIBS	    = m
 uts_SRCS		= uts.c brg_sha1.c bots_common.c bots_main.c $(libtasking_SRCS)
