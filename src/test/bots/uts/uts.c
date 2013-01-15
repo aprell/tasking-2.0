@@ -243,7 +243,6 @@ unsigned long long parTreeSearch(int depth, Node *parent, int numChildren)
 		nodePtr->numChildren = uts_numChildren(nodePtr);
 		if (!pop_from_free_list(&c[i]))
 			chanref_set(&c[i], channel_alloc(sizeof(unsigned long long), 1, SPSC));
-		chanref_set(&c[i], channel_alloc(sizeof(unsigned long long), 1, SPSC));
 		ASYNC(parTreeSearch, depth+1, nodePtr, nodePtr->numChildren, c[i]);
 	}
 
@@ -251,7 +250,6 @@ unsigned long long parTreeSearch(int depth, Node *parent, int numChildren)
 		TASKING_FORCE_FUTURE(chanref_get(c[i]), &partialCount[i]);
 		if (!push_to_free_list(c[i]))
 			channel_free(chanref_get(c[i]));
-		channel_free(chanref_get(c[i]));
 		subtreesize += partialCount[i];
 	}
 
