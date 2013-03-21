@@ -109,9 +109,14 @@ int tasking_internal_exit_signal(void)
 	return 0;
 }
 
-extern PRIVATE mytimer_t timer_idle, timer_handle, timer_decline, timer_steal, timer_async, timer_manage;
-// To measure the impact of lock contention
-extern PRIVATE mytimer_t timer_chan_mpsc, timer_chan_spsc, timer_lock;
+#ifndef NTIME
+// To measure the cost of different parts of the runtime
+extern PRIVATE mytimer_t timer_run_tasks;
+extern PRIVATE mytimer_t timer_enq_deq_tasks;
+extern PRIVATE mytimer_t timer_send_recv_tasks;
+extern PRIVATE mytimer_t timer_send_recv_sreqs;
+extern PRIVATE mytimer_t timer_idle;
+#endif
 
 int tasking_internal_statistics(void)
 {
@@ -124,36 +129,21 @@ int tasking_internal_statistics(void)
 
 	tasking_internal_barrier();
 
+
+#ifndef NTIME
+	printf("Worker %d, %u, %.2lf, "
+			"%.2lf, "
+			"%.2lf, "
+			"%.2lf, "
+			"%.2lf\n",
+			ID, num_tasks_exec_worker,
+			timer_elapsed(&timer_run_tasks, timer_ms),
+			timer_elapsed(&timer_send_recv_sreqs, timer_ms),
+			timer_elapsed(&timer_send_recv_tasks, timer_ms),
+			timer_elapsed(&timer_enq_deq_tasks, timer_ms),
+			timer_elapsed(&timer_idle, timer_ms));
+#else
 	printf("Worker %d: %u tasks\n", ID, num_tasks_exec_worker);
-
-#if 0
-	printf("Worker %d: %u tasks, comp (ms): %.2lf, "
-			"handle (ms): %.2lf, "
-			"decline (ms): %.2lf, "
-			"steal (ms): %.2lf, "
-			"create (ms): %.2lf, "
-			"idle (ms): %.2lf, "
-			"manage (ms): %.2lf\n",
-			ID, num_tasks_exec_worker,
-			num_tasks_exec_worker * 1.0, /* assuming a task size of 1000us */
-			timer_elapsed(&timer_handle, timer_ms),
-			timer_elapsed(&timer_decline, timer_ms),
-			timer_elapsed(&timer_steal, timer_ms),
-			timer_elapsed(&timer_async, timer_ms),
-			timer_elapsed(&timer_idle, timer_ms),
-			timer_elapsed(&timer_manage, timer_ms));
-#endif
-
-#if 0
-	printf("Worker %d: %u tasks, comp (ms): %.2lf, "
-			"channel send/recv MPSC (ms): %.2lf, "
-			"channel send/recv SPSC (ms): %.2lf, "
-			"lock (ms): %.2lf\n",
-			ID, num_tasks_exec_worker,
-			num_tasks_exec_worker * 1.0, /* assuming a task size of 1000us */
-			timer_elapsed(&timer_chan_mpsc, timer_ms),
-			timer_elapsed(&timer_chan_spsc, timer_ms),
-			timer_elapsed(&timer_lock, timer_ms));
 #endif
 
 	fflush(stdout);

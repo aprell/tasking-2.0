@@ -2,6 +2,7 @@
 #define ASYNC_H
 
 #include "tasking_internal.h"
+#include "timer.h"
 
 /* Count variadic macro arguments (1-10 arguments, extend as needed)
  */
@@ -63,7 +64,11 @@ void fname##_task_func(struct fname##_task_data *__d) \
 	assert((struct fname##_task_data *)this->data == __d); \
 	\
 	UNPACK(__d, args); \
+	timer_end(&timer_enq_deq_tasks); \
+	timer_start(&timer_run_tasks); \
 	fname(args); \
+	timer_end(&timer_run_tasks); \
+	timer_start(&timer_enq_deq_tasks); \
 }
 
 /* Async functions with return values are basically futures
@@ -81,7 +86,11 @@ void fname##_task_func(struct fname##_task_data *__d) \
 	assert((struct fname##_task_data *)this->data == __d); \
 	\
 	UNPACK(__d, args, __f); \
+	timer_end(&timer_enq_deq_tasks); \
+	timer_start(&timer_run_tasks); \
 	ret tmp = fname(args); \
+	timer_end(&timer_run_tasks); \
+	timer_start(&timer_enq_deq_tasks); \
 	/**(__v) = tmp;*/ \
 	assert(channel_send(chanref_get(__f), &tmp, sizeof(tmp))); \
 }
@@ -98,6 +107,7 @@ void fname##_task_func(struct fname##_task_data *__d) \
 do { \
 	Task *__task, *__this; \
 	struct f##_task_data *__d; \
+	timer_start(&timer_enq_deq_tasks); \
 	\
 	__task = PRM_task_remove(__PRM_FREE_LIST_NAME__); \
 	if (!__task) \
@@ -118,6 +128,7 @@ do { \
 	__d = (struct f##_task_data *)__task->data; \
 	PACK(__d, args); \
 	push(__task); \
+	timer_end(&timer_enq_deq_tasks); \
 } while (0)
 
 /* Create splittable loop task [s, e)
@@ -126,6 +137,7 @@ do { \
 do { \
 	Task *__task, *__this; \
 	struct f##_task_data *__d; \
+	timer_start(&timer_enq_deq_tasks); \
 	\
 	__task = PRM_task_remove(__PRM_FREE_LIST_NAME__); \
 	if (!__task) \
@@ -146,6 +158,7 @@ do { \
 	__d = (struct f##_task_data *)__task->data; \
 	PACK(__d, env); \
 	push(__task); \
+	timer_end(&timer_enq_deq_tasks); \
 } while (0)
 
 #endif // ASYNC_H

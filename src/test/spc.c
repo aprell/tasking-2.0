@@ -7,11 +7,17 @@
 #include "tasking.h"
 #include "async.h"
 #include "wtime.h"
+#include "timer.h"
 
 //#define LOOPTASKS
 
 #define NUM_TASKS_TOTAL  100000
 #define TASK_GRANULARITY 10 // in microseconds
+
+#ifndef NTIME
+extern PRIVATE mytimer_t timer_run_tasks;
+extern PRIVATE mytimer_t timer_enq_deq_tasks;
+#endif
 
 void spc_consume(int usec)
 {
@@ -31,7 +37,6 @@ void spc_consume(int usec)
 			f2 = f1;
 			f1 = fib;
 		}
-		//(void)RT_check_for_steal_requests();
 	}
 	//printf("Elapsed: %.2lfus\n", elapsed);
 }
@@ -90,11 +95,16 @@ int main(int argc, char *argv[])
 	
 	//spc_produce_seq(NUM_TASKS_TOTAL);
 
-	for (i = 0; i < 3; i++) {
+	for (i = 0; i < 1; i++) {
 		spc_produce(NUM_TASKS_TOTAL);
 		TASKING_BARRIER();
-		//printf("Tasks executed: %d\n", tasking_tasks_exec());
-		assert(tasking_tasks_exec() == NUM_TASKS_TOTAL * (i+1));
+#if 0
+		if (tasking_tasks_exec() != NUM_TASKS_TOTAL * (i+1)) {
+			printf("Tasks executed: %d\n", tasking_tasks_exec());
+			printf("Warning: Barrier failed!\n");
+			exit(1);
+		}
+#endif
 	}
 	
 	end = Wtime_msec();

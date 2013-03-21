@@ -1,6 +1,6 @@
 include ../common.mk
 
-CPPFLAGS += -DPLATFORM_SHM -DCHAN_SHM
+CPPFLAGS += -DPLATFORM_SHM -DCHAN_SHM -DNTIME
 
 CFLAGS += -pthread
 

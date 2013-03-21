@@ -1,6 +1,15 @@
 #ifndef TIMER_H
 #define TIMER_H
 
+#ifdef NTIME
+
+#define timer_new(...)		((void)0)
+#define timer_start(x)		((void)0)
+#define timer_end(x)		((void)0)
+#define timer_elapsed(...) 	((void)0)
+
+#else
+
 #define CYCLES_PER_SEC(t)	((t) * 1e9)
 #define CYCLES_PER_MSEC(t)	((t) * 1e6)
 #define CYCLES_PER_USEC(t)	((t) * 1e3)
@@ -64,5 +73,7 @@ static inline double timer_elapsed(mytimer_t *timer, int opt)
 	
 	return elapsed;
 }
+
+#endif // NTIME
 
 #endif // TIMER_H
