@@ -9,12 +9,12 @@
 #include "chanref.h"
 #include "wtime.h"
 
-#define NUM_ELEMS 1000000
-#define INS_SORT_THRESHOLD 1000
+#define NUM_ELEMS 100000000
+#define INS_SORT_THRESHOLD 100
 
 static int *A;
 //static int localA[INS_SORT_THRESHOLD];
-static __thread unsigned int seed = 100;
+static PRIVATE unsigned int seed = 100;
 
 static void insertionsort(int *A, int length)
 {
