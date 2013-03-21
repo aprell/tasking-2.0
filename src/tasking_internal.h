@@ -72,10 +72,10 @@ static inline void run_task(Task *task)
 	if (task->is_loop) {
 		// We have executed |end-start| iterations
 		int n = abs(task->end - task->start);
-		atomic_add(n, num_tasks_exec);
+		//atomic_add(n, num_tasks_exec);
 		num_tasks_exec_worker += n;
 	} else {
-		atomic_inc(num_tasks_exec);
+		//atomic_inc(num_tasks_exec);
 		num_tasks_exec_worker++;
 	}
 }
