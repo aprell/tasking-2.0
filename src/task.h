@@ -1,6 +1,8 @@
 #ifndef TASK_H
 #define TASK_H
 
+#include <stdio.h>
+#include <stdlib.h>
 #include <stdbool.h>
 #include "list.h"
 
@@ -20,12 +22,51 @@ struct task {
 		int created_by;
 		int mpb_offset;
 	};
+	struct {
+		struct task *prev;
+		struct task *next;
+	};
 	void (*fn)(void *);
 	bool is_loop; 
 	long start, end;
 	// Task body carrying user data
 	char data[TASK_DATA_SIZE];
 };
+
+static inline Task *task_zero(Task *task)
+{
+	task->parent = NULL;
+	task->prev = NULL;
+	task->next = NULL;
+	task->fn = NULL;
+
+	task->is_loop = false;
+	task->start = 0;
+	task->end = 0;
+
+	return task;
+}
+
+static inline Task *task_new(void)
+{
+	Task *task = (Task *)malloc(sizeof(Task));
+	if (!task) {
+		fprintf(stderr, "Warning: task_new failed\n");
+		return NULL;
+	}
+
+	return task_zero(task);
+}
+
+static inline void task_delete(Task *task)
+{
+	free(task);
+}
+
+static inline char *task_data(Task *task)
+{
+	return task->data;
+}
 
 /*****************************************************************************
  * Private memory (PRM) task queue
