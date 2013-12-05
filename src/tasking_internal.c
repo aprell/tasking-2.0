@@ -85,7 +85,12 @@ int tasking_internal_init(int *argc UNUSED, char ***argv UNUSED)
 		IDs[i] = i;
 		pthread_create(&worker_threads[i], NULL, worker_entry_fn, &IDs[i]);
 		// Bind worker threads to available CPUs in a round-robin fashion
+#ifdef __MIC__
+		// Take four-way hyper-threading into account (our MIC has 60 cores)
+		set_thread_affinity(worker_threads[i], (i * 4) % num_cpus + (i / 60));
+#else
 		set_thread_affinity(worker_threads[i], i % num_cpus);
+#endif
 	}
 
 	set_current_task((Task *)malloc(sizeof(Task)));
