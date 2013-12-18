@@ -14,7 +14,9 @@ channel.c
 tasking_SRCS = \
 PRM_task.c \
 tasking.c \
-tasking_internal.c
+tasking_internal.c \
+deque_list_tl.c \
+stack.c
 
 runtime_SRCS = \
 runtime.c

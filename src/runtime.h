@@ -4,10 +4,6 @@
 #include "tasking_internal.h"
 #include "channel.h"
 
-#define __PRM_TASK_QUEUE_NAME__ PRM_TQ
-#define __PRM_FREE_LIST_NAME__	PRM_FL
-#define __MPB_FREE_LIST_NAME__ 	free_list
-
 typedef struct partition {
 	int number;			// index of partition: 0 <= number < num_partitions
 	int manager;		// ID of partition manager
@@ -116,9 +112,6 @@ static PRIVATE int partition_##id[]
 	int i__; \
 	for (i__ = 0, w = (p)->workers; i__ < (p)->num_workers; i__++, w++)
 
-extern PRIVATE PRM_task_queue *__PRM_TASK_QUEUE_NAME__;
-extern PRIVATE PRM_task_queue *__PRM_FREE_LIST_NAME__;
-
 int RT_init();
 int RT_exit(void);
 int RT_schedule(void);
@@ -128,6 +121,9 @@ void RT_force_future_channel(Channel *chan, void *data, unsigned int size);
 // These functions implement the load balancing between workers
 void push(Task *task);
 Task *pop(void);
+Task *pop_child(void);
+
+Task *task_alloc(void);
 
 // These functions implement support for loop tasks and work-splitting
 bool RT_loop_init(long *start, long *end);

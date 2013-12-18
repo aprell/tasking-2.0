@@ -4,6 +4,11 @@
 #include "tasking_internal.h"
 #include "timer.h"
 
+#ifndef NTIME
+extern PRIVATE mytimer_t timer_run_tasks;
+extern PRIVATE mytimer_t timer_enq_deq_tasks;
+#endif
+
 /* Count variadic macro arguments (1-10 arguments, extend as needed)
  */
 #define VA_NARGS_IMPL(_1, _2, _3, _4, _5, _6, _7, _8, _9, _10, N, ...) N
@@ -105,25 +110,13 @@ void fname##_task_func(struct fname##_task_data *__d) \
  */
 #define ASYNC(f, args...) \
 do { \
-	Task *__task, *__this; \
+	Task *__task; \
 	struct f##_task_data *__d; \
 	timer_start(&timer_enq_deq_tasks); \
 	\
-	__task = PRM_task_remove(__PRM_FREE_LIST_NAME__); \
-	if (!__task) \
-		__task = PRM_task_new(NULL, NULL); \
-	\
-	assert(__task != NULL); \
-	assert(__task->fn == NULL); \
-	\
-	__this = get_current_task(); \
-	__task->parent = __this; \
+	__task = task_alloc(); \
+	__task->parent = get_current_task(); \
 	__task->fn = (void (*)(void *))f##_task_func; \
-	__task->created_by = ID; /* XXX Not needed anymore */ \
-	__task->mpb_offset = -1; /* XXX Not needed anymore */ \
-	__task->is_loop = false; \
-	__task->start = 0; \
-	__task->end = 0; \
 	\
 	__d = (struct f##_task_data *)__task->data; \
 	PACK(__d, args); \
@@ -135,22 +128,13 @@ do { \
  */
 #define ASYNC_FOR(f, s, e, env...) \
 do { \
-	Task *__task, *__this; \
+	Task *__task; \
 	struct f##_task_data *__d; \
 	timer_start(&timer_enq_deq_tasks); \
 	\
-	__task = PRM_task_remove(__PRM_FREE_LIST_NAME__); \
-	if (!__task) \
-		__task = PRM_task_new(NULL, NULL); \
-	\
-	assert(__task != NULL); \
-	assert(__task->fn == NULL); \
-	\
-	__this = get_current_task(); \
-	__task->parent = __this; \
+	__task = task_alloc(); \
+	__task->parent = get_current_task(); \
 	__task->fn = (void (*)(void *))f##_task_func; \
-	__task->created_by = ID; /* XXX Not needed anymore */ \
-	__task->mpb_offset = -1; /* XXX Not needed anymore */ \
 	__task->is_loop = true; \
 	__task->start = (s); \
 	__task->end = (e); \

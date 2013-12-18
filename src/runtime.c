@@ -5,6 +5,7 @@
 #include <assert.h>
 #include <pthread.h>
 #include "runtime.h"
+#include "deque_list_tl.h"
 // Disable unit tests
 #include "utest.h"
 UTEST_MAIN() {}
@@ -18,7 +19,7 @@ UTEST_MAIN() {}
 #define LOG(...) { printf(__VA_ARGS__); fflush(stdout); }
 #define UNUSED(x) x __attribute__((unused))
 
-PRIVATE PRM_task_queue *PRM_TQ, *PRM_FL;
+static PRIVATE DequeListTL *deque;
 
 // Manager/worker -> manager: inter-partition steal requests (MPSC)
 // chan_manager and chan_requests could be merged, but only if we don't care
@@ -234,13 +235,12 @@ int RT_init(void)
 	//LOG("Worker %d --> %d\n", ID, (next_worker == 1 || next_worker == 7 || 
 	//			                   next_worker == 25 || next_worker == 31) ? next_worker + 1 : next_worker);
 
-	PRM_TQ = PRM_task_queue_init(task_LIFO);
-	PRM_FL = PRM_task_queue_init(task_LIFO);
+	deque = deque_list_tl_new();
 
 	// Capacity arbitrarily chosen
-	chan_requests[ID] = channel_alloc(sizeof(struct steal_request), 32, MPSC);
-	chan_tasks[ID] = channel_alloc(sizeof(Task), 0, SPSC);
-	chan_notify[ID] = channel_alloc(32, 0, SPSC);
+	chan_requests[ID] = channel_alloc(sizeof(struct steal_request), num_workers, MPSC);
+	chan_tasks[ID] = channel_alloc(sizeof(Task *), 2, SPSC);
+	chan_notify[ID] = channel_alloc(sizeof(int), 0, SPSC);
 	
 	MANAGER {
 		chan_manager[ID] = channel_alloc(sizeof(struct steal_request), num_workers, MPSC);
@@ -253,7 +253,6 @@ int RT_init(void)
 
 	victims[ID] = (int *)malloc(MAXNP * sizeof(int));
 	my_victims = (int *)malloc(MAXNP * sizeof(int));
-		
 
 	//chan_helper = channel_alloc_shm(sizeof(struct steal_request), 32);
 
@@ -283,8 +282,7 @@ int RT_init(void)
 
 int RT_exit(void)
 {
-	PRM_task_queue_destroy(PRM_TQ);
-	PRM_task_queue_destroy(PRM_FL);
+	deque_list_tl_delete(deque);
 
 	//channel_free_shm(chan_helper);
 
@@ -318,13 +316,18 @@ static inline bool is_in_my_partition(int ID)
 	return false;
 }
 
+Task *task_alloc(void)
+{
+	return deque_list_tl_task_new(deque);
+}
+
 #define VICTIM_RANDOM
 //#define VICTIM_ROUNDR
 
 #ifdef VICTIM_ROUNDR
 // Chooses the next victim at random
 // Can be combined with VICTIM_ROUNDR for example
-//XXX Problem if worker is alone in partition!
+// FIXME: Problem if worker is alone in partition!
 static inline int random_victim(int thief)
 {
 	int victim = -1, i;
@@ -338,7 +341,7 @@ static inline int random_victim(int thief)
 		//		 victim == 7 || victim == 25 || victim == 31);
 	}
 
-	assert(is_in_my_partition(victim));
+	//assert(is_in_my_partition(victim));
 
 	return victim;
 }
@@ -361,7 +364,7 @@ static inline int select_victim(struct steal_request *req)
 	victim = victims[req->ID][req->try];
 #endif
 
-	assert(is_in_my_partition(victim));
+	//assert(is_in_my_partition(victim));
 
 	return victim;
 }
@@ -643,7 +646,7 @@ static inline void UPDATE(void)
 
 	timer_start(&timer_send_recv_sreqs);
 
-	if (PRM_task_queue_num_tasks(PRM_TQ) <= REQ_THRESHOLD) {
+	if (deque_list_tl_num_tasks(deque) <= REQ_THRESHOLD) {
 		send_steal_request(false);
 	}
 
@@ -714,10 +717,12 @@ static inline void decline_all_steal_requests(void)
 
 static void handle_steal_request(struct steal_request *req)
 {
+	int loot;
+
 	if (req->ID == ID) {
 		// Got own steal request
 		// Forget about it if we have more tasks than previously
-		if (PRM_task_queue_num_tasks(PRM_TQ) > REQ_THRESHOLD) {
+		if (deque_list_tl_num_tasks(deque) > REQ_THRESHOLD) {
 			assert(!req->quiescent);
 			assert(requested);
 			requested = false;
@@ -731,9 +736,9 @@ static void handle_steal_request(struct steal_request *req)
 	}
 	assert(req->ID != ID);
 	timer_start(&timer_send_recv_tasks);
-	Task *task = PRM_task_steal(PRM_TQ);
+	Task *task = deque_list_tl_steal(deque);
 	if (task) {
-		int n[8]; n[0] = 1; n[1] = ID;
+		loot = 1;
 		if (req->quiescent) {
 			assert(req->idle);
 			assert(req->pass == num_partitions);
@@ -742,15 +747,14 @@ static void handle_steal_request(struct steal_request *req)
 			SEND_REQ_MANAGER(req);
 		}
 		//LOG("Worker %2d: sending task to worker %d\n", ID, req->ID);
-		assert(channel_send(chan_tasks[req->ID], task, sizeof(*task)));
-		assert(channel_send(chan_notify[req->ID], n, sizeof(n)));
-		PRM_task_dispatch(PRM_task_clear(task), PRM_FL);
+		assert(channel_send(chan_tasks[req->ID], (void *)&task, sizeof(task)));
+		assert(channel_send(chan_notify[req->ID], &loot, sizeof(loot)));
 		timer_end(&timer_send_recv_tasks);
 	} else {
 		// Got steal request, but can't serve it
 		// Pass it on to someone else
 		timer_end(&timer_send_recv_tasks);
-		assert(PRM_task_queue_is_empty(PRM_TQ));
+		assert(deque_list_tl_empty(deque));
 		timer_start(&timer_send_recv_sreqs);
 		decline_steal_request(req);
 		timer_end(&timer_send_recv_sreqs);
@@ -783,26 +787,27 @@ int RT_check_for_steal_requests(void)
 // Executed by worker threads
 void *schedule(UNUSED(void *args))
 {
-	Task task, *taskp;
-	int n[8];
+	Task *task;
+	//int n[8];
+	int loot;
 
 	//timer_start(&timer_idle);
 
 	// Scheduling loop
 	for (;;) {
-		// (1) PRM task queue
+		// (1) Private task queue
 		//timer_end(&timer_idle);
-		while ((taskp = pop()) != NULL) {
+		while ((task = pop()) != NULL) {
 			timer_start(&timer_enq_deq_tasks);
-			run_task(taskp);
+			run_task(task);
+			deque_list_tl_task_cache(deque, task);
 			timer_end(&timer_enq_deq_tasks);
-			PRM_task_dispatch(PRM_task_clear(taskp), PRM_FL);
 		}
 		// (2) Work-stealing request
 		assert(requested);
 		timer_start(&timer_idle);
-		while (!channel_receive(chan_notify[ID], n, sizeof(n))) {
-			assert(PRM_task_queue_is_empty(PRM_TQ));
+		while (!channel_receive(chan_notify[ID], &loot, sizeof(loot))) {
+			assert(deque_list_tl_empty(deque));
 			assert(requested);
 			decline_all_steal_requests();
 			if (*tasking_finished) {
@@ -812,7 +817,7 @@ void *schedule(UNUSED(void *args))
 		}
 		timer_end(&timer_idle);
 		timer_start(&timer_send_recv_tasks);
-		assert(channel_receive(chan_tasks[ID], &task, sizeof(task)));
+		assert(channel_receive(chan_tasks[ID], (void *)&task, sizeof(task)));
 		timer_end(&timer_send_recv_tasks);
 		//last_victim = n[1];
 		//assert(last_victim != 1 && last_victim != ID);
@@ -820,7 +825,7 @@ void *schedule(UNUSED(void *args))
 		//TODO Figure out at which points updates are reasonable
 		//UPDATE();
 		timer_start(&timer_enq_deq_tasks);
-		run_task(&task);
+		run_task(task);
 		timer_end(&timer_enq_deq_tasks);
 	}
 
@@ -836,6 +841,7 @@ schedule_exit:
 }
 
 // Executed by helper threads
+// XXX This doesn't work with thread-local deques!
 static void *help(UNUSED(void *args))
 {
 	struct steal_request req;
@@ -843,7 +849,7 @@ static void *help(UNUSED(void *args))
 	for (;;) {
 		while (RECV_REQ(&req)) {
 			// Minimum amount of shared state
-			if (*(volatile unsigned int *)&PRM_TQ->ntasks) {
+			if (!deque_list_tl_empty(deque)) {
 				FORWARD_REQ(&req);
 			} else {
 				if (req.ID == ID && !req.idle) {
@@ -911,19 +917,20 @@ int RT_barrier(void)
 {
 	WORKER return 0;
 
-	Task task, *taskp;
+	Task *task;
 	Task *this = get_current_task();
 	assert(is_root_task(this));
 
-	int n[8];
+	int loot;
+	//int n[8];
 	bool quiescent;
 
 empty_local_queue:
-	while ((taskp = pop()) != NULL) {
+	while ((task = pop()) != NULL) {
 		timer_start(&timer_enq_deq_tasks);
-		run_task(taskp);
+		run_task(task);
+		deque_list_tl_task_cache(deque, task);
 		timer_end(&timer_enq_deq_tasks);
-		PRM_task_dispatch(PRM_task_clear(taskp), PRM_FL);
 	}
 
 	if (num_workers == 1)
@@ -931,8 +938,8 @@ empty_local_queue:
 	
 	assert(requested);
 	timer_start(&timer_idle);
-	while (!channel_receive(chan_notify[ID], n, sizeof(n))) {
-		assert(PRM_task_queue_is_empty(PRM_TQ));
+	while (!channel_receive(chan_notify[ID], &loot, sizeof(loot))) {
+		assert(deque_list_tl_empty(deque));
 		assert(requested);
 		decline_all_steal_requests();
 		if (channel_receive(chan_barrier, &quiescent, sizeof(quiescent))) {
@@ -943,7 +950,7 @@ empty_local_queue:
 	}
 	timer_end(&timer_idle);
 	timer_start(&timer_send_recv_tasks);
-	assert(channel_receive(chan_tasks[ID], &task, sizeof(task)));
+	assert(channel_receive(chan_tasks[ID], (void *)&task, sizeof(task)));
 	timer_end(&timer_send_recv_tasks);
 	//last_victim = n[1];
 	//assert(last_victim != 1 && last_victim != ID);
@@ -951,7 +958,8 @@ empty_local_queue:
 	//TODO Figure out at which points updates are reasonable
 	//UPDATE();
 	timer_start(&timer_enq_deq_tasks);
-	run_task(&task);
+	run_task(task);
+	deque_list_tl_task_cache(deque, task);
 	timer_end(&timer_enq_deq_tasks);
 	goto empty_local_queue;
 
@@ -979,31 +987,24 @@ RT_barrier_exit:
 
 void RT_force_future_channel(Channel *chan, void *data, unsigned int size)
 {
-	Task task, *taskp;
+	Task *task;
 	Task *this = get_current_task();
 	struct steal_request req;
-	int n[8];
+	//int n[8];
+	int loot;
 
 	assert(channel_impl(chan) == SPSC);
 
 	if (channel_receive(chan, data, size))
 		goto RT_force_future_channel_return;
 
-	while ((taskp = pop()) != NULL) {
-		if (taskp->parent == this) {
-			timer_start(&timer_enq_deq_tasks);
-			run_task(taskp);
-			timer_end(&timer_enq_deq_tasks);
-			PRM_task_dispatch(PRM_task_clear(taskp), PRM_FL);
-			if (channel_receive(chan, data, size))
-				goto RT_force_future_channel_return;
-		} else {
-			// Push it back onto the queue
-			timer_start(&timer_enq_deq_tasks);
-			push(taskp);
-			timer_end(&timer_enq_deq_tasks);
-			break;
-		}
+	while ((task = pop_child()) != NULL) {
+		timer_start(&timer_enq_deq_tasks);
+		run_task(task);
+		deque_list_tl_task_cache(deque, task);
+		timer_end(&timer_enq_deq_tasks);
+		if (channel_receive(chan, data, size))
+			goto RT_force_future_channel_return;
 	}
 
 	assert(get_current_task() == this);
@@ -1015,7 +1016,7 @@ void RT_force_future_channel(Channel *chan, void *data, unsigned int size)
 		send_steal_request(false);
 		timer_end(&timer_send_recv_sreqs);
 		timer_start(&timer_idle);
-		while (!channel_receive(chan_notify[ID], n, sizeof(n))) {
+		while (!channel_receive(chan_notify[ID], &loot, sizeof(loot))) {
 			assert(requested);
 			timer_end(&timer_idle);
 			// Check if someone requested to steal from us
@@ -1029,7 +1030,7 @@ void RT_force_future_channel(Channel *chan, void *data, unsigned int size)
 		}
 		timer_end(&timer_idle);
 		timer_start(&timer_send_recv_tasks);
-		assert(channel_receive(chan_tasks[ID], &task, sizeof(task)));
+		assert(channel_receive(chan_tasks[ID], (void *)&task, sizeof(task)));
 		timer_end(&timer_send_recv_tasks);
 		//last_victim = n[1];
 		//assert(last_victim != 1 && last_victim != ID);
@@ -1037,7 +1038,8 @@ void RT_force_future_channel(Channel *chan, void *data, unsigned int size)
 		//TODO Figure out at which points updates are reasonable
 		//UPDATE();
 		timer_start(&timer_enq_deq_tasks);
-		run_task(&task);
+		run_task(task);
+		deque_list_tl_task_cache(deque, task);
 		timer_end(&timer_enq_deq_tasks);
 		timer_start(&timer_idle);
 	}
@@ -1051,7 +1053,7 @@ void push(Task *task)
 {
 	struct steal_request req;
 
-	PRM_task_dispatch(task, PRM_TQ);
+	deque_list_tl_push(deque, task);
 
 	timer_end(&timer_enq_deq_tasks);
 
@@ -1078,7 +1080,33 @@ Task *pop(void)
 
 	timer_start(&timer_enq_deq_tasks);
 
-	Task *task = PRM_task_remove(PRM_TQ);
+	Task *task = deque_list_tl_pop(deque);
+
+	timer_end(&timer_enq_deq_tasks);
+
+	UPDATE();
+
+	// Check if someone requested to steal from us
+	while (RECV_REQ(&req)) {
+		// If we just popped a loop task, we may split right here
+		// Makes handle_steal_request simpler
+		if (SPLITTABLE(task, task->start, task->end) && req.ID != ID) {
+			split_loop(task, task->start, &task->end, &req);
+		} else {
+			handle_steal_request(&req);
+		}
+	}
+
+	return task;
+}
+
+Task *pop_child(void)
+{
+	struct steal_request req;
+
+	timer_start(&timer_enq_deq_tasks);
+
+	Task *task = deque_list_tl_pop_child(deque, get_current_task());
 
 	timer_end(&timer_enq_deq_tasks);
 
@@ -1146,16 +1174,22 @@ static inline long split_half(long start, long end)
 // Work-splitting modifies task in-place (avoids a new copy)!
 static void split_loop(Task *task, long start, long *end, struct steal_request *req)
 {
-	long _start = task->start, split, _end = *end;
-	int n[8]; n[0] = 1; n[1] = ID;
+	Task *dup = task_alloc();
+	long split;
+	int loot = 1;
+
+	// dup is a copy of the current task
+	*dup = *task;
 
 	// Split iteration range according to given strategy
     // [start, end) => [start, split) + [split, end)
-    split = split_half(start, _end);
-	task->start = split;
-	task->end = _end;
+	split = split_half(start, *end);
 
-	//LOG("Worker %2d: Sending (%ld, %ld) to worker %d\n", ID, task->start, task->end, req->ID);
+	// New task gets upper half of iterations
+	dup->start = split;
+	dup->end = *end;
+
+	//LOG("Worker %2d: Sending (%ld, %ld) to worker %d\n", ID, dup->start, dup->end, req->ID);
 
 	if (req->quiescent) {
 		assert(req->idle);
@@ -1165,10 +1199,10 @@ static void split_loop(Task *task, long start, long *end, struct steal_request *
 		SEND_REQ_MANAGER(req);
 	}
 
-	assert(channel_send(chan_tasks[req->ID], task, sizeof(*task)));
-	assert(channel_send(chan_notify[req->ID], n, sizeof(n)));
+	assert(channel_send(chan_tasks[req->ID], (void *)&dup, sizeof(dup)));
+	assert(channel_send(chan_notify[req->ID], &loot, sizeof(loot)));
 
-	task->start = _start;
+	// Current task continues with lower half of iterations
 	task->end = *end = split;
 
 	//LOG("Worker %2d: Continuing with (%ld, %ld)\n", ID, task->start, task->end);
