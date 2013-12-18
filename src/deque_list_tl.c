@@ -126,6 +126,30 @@ Task *deque_list_tl_pop(DequeListTL *dq)
 	return task;
 }
 
+Task *deque_list_tl_pop_child(DequeListTL *dq, Task *parent)
+{
+	assert(dq != NULL);
+	assert(parent != NULL);
+
+	Task *task;
+
+	if (deque_list_tl_empty(dq))
+		return NULL;
+
+	task = dq->head;
+	if (task->parent != parent) {
+		// Not a child of parent, don't pop it
+		return NULL;
+	}
+	dq->head = dq->head->next;
+	dq->head->prev = NULL;
+	task->next = NULL;
+
+	dq->num_tasks--;
+
+	return task;
+}
+
 Task *deque_list_tl_steal(DequeListTL *dq)
 {
 	assert(dq != NULL);

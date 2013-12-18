@@ -23,6 +23,7 @@ unsigned int deque_list_tl_num_tasks(DequeListTL *dq);
 
 void deque_list_tl_push(DequeListTL *dq, Task *task);
 Task *deque_list_tl_pop(DequeListTL *dq);
+Task *deque_list_tl_pop_child(DequeListTL *dq, Task *parent);
 Task *deque_list_tl_steal(DequeListTL *dq);
 Task *deque_list_tl_steal_many(DequeListTL *dq, Task **tail, int max,
 		                       int *stolen);
