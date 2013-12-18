@@ -11,12 +11,17 @@
 
 //#define LOOPTASKS
 
-#define NUM_TASKS_PER_DEPTH 9
-#define DEPTH 10000
+static int DEPTH; // For example, 10000
+static int NUM_TASKS_PER_DEPTH; // For example, 9
 // The total number of tasks in the BPC benchmark is 
 // (NUM_TASKS_PER_DEPTH + 1) * DEPTH
-#define NUM_TASKS_TOTAL ((NUM_TASKS_PER_DEPTH + 1) * DEPTH)
-#define TASK_GRANULARITY 10 // in microseconds
+static int NUM_TASKS_TOTAL;
+static int TASK_GRANULARITY; // in microseconds
+
+void print_usage(void)
+{
+	printf("Usage: bpc <depth> <number of tasks per depth> <task granularity (us)>\n");
+}
 
 #ifndef NTIME
 extern PRIVATE mytimer_t timer_run_tasks;
@@ -119,29 +124,28 @@ void bpc_produce_seq(int n, int d)
 int main(int argc, char *argv[])
 {
 	double start, end;
-	int i;
+
+	if (argc != 4) {
+		print_usage();
+		exit(0);
+	}
+
+	DEPTH = atoi(argv[1]);
+	NUM_TASKS_PER_DEPTH = atoi(argv[2]);
+	TASK_GRANULARITY = atoi(argv[3]);
+	NUM_TASKS_TOTAL = (NUM_TASKS_PER_DEPTH + 1) * DEPTH;
 
 	TASKING_INIT(&argc, &argv);
 
 	start = Wtime_msec();
-	
-	//bpc_produce_seq(NUM_TASKS_PER_DEPTH, DEPTH);
 
-	for (i = 0; i < 1; i++) {
-		bpc_produce(NUM_TASKS_PER_DEPTH, DEPTH);
-		TASKING_BARRIER();
-#if 0
-		if (tasking_tasks_exec() != NUM_TASKS_TOTAL * (i+1)) {
-			printf("Tasks executed: %d\n", tasking_tasks_exec());
-			printf("Warning: Barrier failed!\n");
-			exit(1);
-		}
-#endif
-	}
-	
+	//bpc_produce_seq(NUM_TASKS_PER_DEPTH, DEPTH);
+	bpc_produce(NUM_TASKS_PER_DEPTH, DEPTH);
+	TASKING_BARRIER();
+
 	end = Wtime_msec();
 
-	printf("Elapsed wall time: %.2lfms\n", end - start);
+	printf("Elapsed wall time (%dus/task): %.2lf ms\n", TASK_GRANULARITY, end-start);
 
 	// This should be moved inside TASKING_EXIT()
 	TASKING_BARRIER();

@@ -9,10 +9,13 @@
 #include "chanref.h"
 #include "wtime.h"
 
-#define FIB_LIKE_N 25
-#define CUTOFF 10
+static int FIB_LIKE_N; // For example, 25
+static int TASK_GRANULARITY; // in microseconds
 
-#define TASK_GRANULARITY 10 // in microseconds
+void print_usage(void)
+{
+	printf("Usage: fib-like <N> <task granularity (us)>\n");
+}
 
 static int compute(int usec)
 {
@@ -107,6 +110,14 @@ int main(int argc, char *argv[])
 	double start, end;
 	int f;
 
+	if (argc != 3) {
+		print_usage();
+		exit(0);
+	}
+
+	FIB_LIKE_N = atoi(argv[1]);
+	TASK_GRANULARITY = atoi(argv[2]);
+
 	TASKING_INIT(&argc, &argv);
 
 	start = Wtime_msec();
@@ -115,7 +126,7 @@ int main(int argc, char *argv[])
 	end = Wtime_msec();
 	verify_result(FIB_LIKE_N, f);
 	
-	printf("Elapsed wall time: %.2lfms\n", end - start);
+	printf("Elapsed wall time (%dus/task): %.2lf ms\n", TASK_GRANULARITY, end-start);
 
 	// This should be moved inside TASKING_EXIT()
 	TASKING_BARRIER();

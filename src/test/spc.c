@@ -11,8 +11,13 @@
 
 //#define LOOPTASKS
 
-#define NUM_TASKS_TOTAL  100000
-#define TASK_GRANULARITY 10 // in microseconds
+static int NUM_TASKS_TOTAL;
+static int TASK_GRANULARITY; // in microseconds
+
+void print_usage(void)
+{
+	printf("Usage: spc <number of tasks> <task granularity (us)>\n");
+}
 
 #ifndef NTIME
 extern PRIVATE mytimer_t timer_run_tasks;
@@ -87,29 +92,26 @@ void spc_produce_seq(int n)
 int main(int argc, char *argv[])
 {
 	double start, end;
-	int i;
+
+	if (argc != 3) {
+		print_usage();
+		exit(0);
+	}
+
+	NUM_TASKS_TOTAL = atoi(argv[1]);
+	TASK_GRANULARITY = atoi(argv[2]);
 
 	TASKING_INIT(&argc, &argv);
 
 	start = Wtime_msec();
-	
-	//spc_produce_seq(NUM_TASKS_TOTAL);
 
-	for (i = 0; i < 1; i++) {
-		spc_produce(NUM_TASKS_TOTAL);
-		TASKING_BARRIER();
-#if 0
-		if (tasking_tasks_exec() != NUM_TASKS_TOTAL * (i+1)) {
-			printf("Tasks executed: %d\n", tasking_tasks_exec());
-			printf("Warning: Barrier failed!\n");
-			exit(1);
-		}
-#endif
-	}
+	//spc_produce_seq(NUM_TASKS_TOTAL);
+	spc_produce(NUM_TASKS_TOTAL);
+	TASKING_BARRIER();
 	
 	end = Wtime_msec();
 
-	printf("Elapsed wall time: %.2lfms\n", end - start);
+	printf("Elapsed wall time (%dus/task): %.2lf ms\n", TASK_GRANULARITY, end-start);
 
 	// This should be moved inside TASKING_EXIT()
 	TASKING_BARRIER();
