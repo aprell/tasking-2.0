@@ -30,5 +30,6 @@ src/spc
 src/sum
 src/mm
 src/nbody3
-src/uts
+src/uts-seq
+src/uts-par
 src/lu
