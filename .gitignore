@@ -8,12 +8,18 @@
 *~
 *.swp
 *.DS_Store
+tags
 
 src/channel_shm/fib
 src/channel_shm/shift
 src/channel_shm/throughput
 src/channel_shm/utest
 
+src/test/*.tmp
+src/test/*.ref
+
+src/*.log
+src/*.csv
 src/barrier
 src/bpc
 src/fibgen
