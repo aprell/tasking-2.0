@@ -717,6 +717,7 @@ static inline void decline_all_steal_requests(void)
 
 static void handle_steal_request(struct steal_request *req)
 {
+	Task *task;
 	int loot;
 
 	if (req->ID == ID) {
@@ -736,9 +737,13 @@ static void handle_steal_request(struct steal_request *req)
 	}
 	assert(req->ID != ID);
 	timer_start(&timer_send_recv_tasks);
-	Task *task = deque_list_tl_steal(deque);
+#ifdef STEAL_HALF
+	Task *tail;
+	task = deque_list_tl_steal_half(deque, &tail, &loot);
+#else
+	task = deque_list_tl_steal(deque);
+#endif
 	if (task) {
-		loot = 1;
 		if (req->quiescent) {
 			assert(req->idle);
 			assert(req->pass == num_partitions);
@@ -747,7 +752,13 @@ static void handle_steal_request(struct steal_request *req)
 			SEND_REQ_MANAGER(req);
 		}
 		//LOG("Worker %2d: sending task to worker %d\n", ID, req->ID);
-		assert(channel_send(chan_tasks[req->ID], (void *)&task, sizeof(task)));
+		assert(channel_send(chan_tasks[req->ID], (void *)&task, sizeof(Task *)));
+#ifdef STEAL_HALF
+		if (loot > 1)
+			assert(channel_send(chan_tasks[req->ID], (void *)&tail, sizeof(Task *)));
+#else
+		loot = 1;
+#endif
 		assert(channel_send(chan_notify[req->ID], &loot, sizeof(loot)));
 		timer_end(&timer_send_recv_tasks);
 	} else {
@@ -788,6 +799,9 @@ int RT_check_for_steal_requests(void)
 void *schedule(UNUSED(void *args))
 {
 	Task *task;
+#ifdef STEAL_HALF
+	Task *tail;
+#endif
 	//int n[8];
 	int loot;
 
@@ -817,7 +831,13 @@ void *schedule(UNUSED(void *args))
 		}
 		timer_end(&timer_idle);
 		timer_start(&timer_send_recv_tasks);
-		assert(channel_receive(chan_tasks[ID], (void *)&task, sizeof(task)));
+		assert(channel_receive(chan_tasks[ID], (void *)&task, sizeof(Task *)));
+#ifdef STEAL_HALF
+		if (loot > 1) {
+			assert(channel_receive(chan_tasks[ID], (void *)&tail, sizeof(Task *)));
+			task = deque_list_tl_pop(deque_list_tl_prepend(deque, task, tail, loot));
+		}
+#endif
 		timer_end(&timer_send_recv_tasks);
 		//last_victim = n[1];
 		//assert(last_victim != 1 && last_victim != ID);
@@ -826,6 +846,7 @@ void *schedule(UNUSED(void *args))
 		//UPDATE();
 		timer_start(&timer_enq_deq_tasks);
 		run_task(task);
+		deque_list_tl_task_cache(deque, task);
 		timer_end(&timer_enq_deq_tasks);
 	}
 
@@ -917,10 +938,12 @@ int RT_barrier(void)
 {
 	WORKER return 0;
 
-	Task *task;
-	Task *this = get_current_task();
-	assert(is_root_task(this));
+	assert(is_root_task(get_current_task()));
 
+	Task *task;
+#ifdef STEAL_HALF
+	Task *tail;
+#endif
 	int loot;
 	//int n[8];
 	bool quiescent;
@@ -950,7 +973,13 @@ empty_local_queue:
 	}
 	timer_end(&timer_idle);
 	timer_start(&timer_send_recv_tasks);
-	assert(channel_receive(chan_tasks[ID], (void *)&task, sizeof(task)));
+	assert(channel_receive(chan_tasks[ID], (void *)&task, sizeof(Task *)));
+#ifdef STEAL_HALF
+	if (loot > 1) {
+		assert(channel_receive(chan_tasks[ID], (void *)&tail, sizeof(Task *)));
+		task = deque_list_tl_pop(deque_list_tl_prepend(deque, task, tail, loot));
+	}
+#endif
 	timer_end(&timer_send_recv_tasks);
 	//last_victim = n[1];
 	//assert(last_victim != 1 && last_victim != ID);
@@ -988,6 +1017,9 @@ RT_barrier_exit:
 void RT_force_future_channel(Channel *chan, void *data, unsigned int size)
 {
 	Task *task;
+#ifdef STEAL_HALF
+	Task *tail;
+#endif
 	Task *this = get_current_task();
 	struct steal_request req;
 	//int n[8];
@@ -1031,6 +1063,12 @@ void RT_force_future_channel(Channel *chan, void *data, unsigned int size)
 		timer_end(&timer_idle);
 		timer_start(&timer_send_recv_tasks);
 		assert(channel_receive(chan_tasks[ID], (void *)&task, sizeof(task)));
+#ifdef STEAL_HALF
+		if (loot > 1) {
+			assert(channel_receive(chan_tasks[ID], (void *)&tail, sizeof(Task *)));
+			task = deque_list_tl_pop(deque_list_tl_prepend(deque, task, tail, loot));
+		}
+#endif
 		timer_end(&timer_send_recv_tasks);
 		//last_victim = n[1];
 		//assert(last_victim != 1 && last_victim != ID);
