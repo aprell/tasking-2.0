@@ -47,9 +47,6 @@ struct token {
 	char __[24];	// pad to cache line
 };
 
-// Helper thread -> worker thread: steal requests (SPSC)
-static Channel *chan_helper;
-
 // One possible extension would be to be able to request more than one task
 // at a time. No need to change the work-stealing algorithm.
 // Another idea would be to be able to request a task from a specific worker,
@@ -254,8 +251,6 @@ int RT_init(void)
 	victims[ID] = (int *)malloc(MAXNP * sizeof(int));
 	my_victims = (int *)malloc(MAXNP * sizeof(int));
 
-	//chan_helper = channel_alloc_shm(sizeof(struct steal_request), 32);
-
 	ws_init_random();
 
 	for (i = 0; i < my_partition->num_workers_rt; i++) {
@@ -283,8 +278,6 @@ int RT_init(void)
 int RT_exit(void)
 {
 	deque_list_tl_delete(deque);
-
-	//channel_free_shm(chan_helper);
 
 	free(victims[ID]);
 	free(my_victims);
@@ -375,12 +368,6 @@ static inline void decline_steal_request(struct steal_request *);
 static inline void decline_all_steal_requests(void);
 static inline void split_loop(Task *, long, long *, struct steal_request *);
 
-#define YIELD() \
-do { \
-	if (pthread_yield()) \
-		LOG("Warning: pthread_yield failed\n"); \
-} while (0)
-
 #define SEND_REQ(chan, req) \
 do { \
 	/* Problematic if the target worker has already left scheduling */\
@@ -411,9 +398,6 @@ static inline bool RECV_REQ(struct steal_request *req)
 
 	return ret;
 }
-
-#define RECV_REQ_FROM_HELPER(req) \
-	channel_receive_shm(chan_helper, req, sizeof(*(req)))
 
 #define SEND_QSC_MSG(tok) \
 { \
@@ -854,42 +838,10 @@ schedule_exit:
 	return 0;
 }
 
-#define FORWARD_REQ(req) \
-{ \
-	while (!channel_send(chan_helper, req, sizeof(*(req)))) { \
-		if (*tasking_finished) break; \
-	} \
-}
-
-// Executed by helper threads
-// XXX This doesn't work with thread-local deques!
-static void *help(UNUSED(void *args))
-{
-	struct steal_request req;
-
-	for (;;) {
-		while (RECV_REQ(&req)) {
-			// Minimum amount of shared state
-			if (!deque_list_tl_empty(deque)) {
-				FORWARD_REQ(&req);
-			} else {
-				if (req.ID == ID && !req.idle) {
-					req.idle = true;
-				}
-				decline_steal_request(&req);
-			}
-		}
-		YIELD();
-		if (*tasking_finished) break;
-	}
-	
-	return 0;
-}
-
 // Executed by worker threads
 int RT_schedule(void)
 {
-	// Managers do the load balancing (in a separate thread)
+	// Managers do the load balancing (possibly in a separate thread)
 	MANAGER {
 		//pthread_t worker;
 		//pthread_attr_t attr;
@@ -899,37 +851,10 @@ int RT_schedule(void)
 		//pthread_join(worker, NULL);
 		//pthread_attr_destroy(&attr);
 	} else {
-		//XXX Every worker thread creates an additional helper thread for
-		// passing on steal requests
-		//pthread_t helper;
-		//pthread_attr_t attr;
-		//pthread_attr_init(&attr);
-		//pthread_create(&helper, &attr, help, NULL);
 		schedule(NULL);
-		//pthread_join(helper, NULL);
-		//pthread_attr_destroy(&attr);
 	}
 
 	//LOG("Worker %2d: %10u sent and %10u declined steal requests\n", ID, sent, declined);
-
-	return 0;
-}
-
-static PRIVATE pthread_t master_helper;
-static PRIVATE pthread_attr_t master_helper_attr;
-
-int RT_helper_create(void)
-{
-	pthread_attr_init(&master_helper_attr);
-	pthread_create(&master_helper, &master_helper_attr, help, NULL);
-
-	return 0;
-}
-
-int RT_helper_join(void)
-{
-	pthread_join(master_helper, NULL);
-	pthread_attr_destroy(&master_helper_attr);
 
 	return 0;
 }

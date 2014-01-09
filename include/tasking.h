@@ -6,13 +6,11 @@
 #define TASKING_INIT(argc, argv) \
 do { \
 	tasking_init(argc, argv); \
-	/* RT_helper_create(); */\
 } while (0)
 
 #define TASKING_EXIT() \
 do { \
 	tasking_exit_signal(); \
-	/* RT_helper_join(); */\
 	tasking_exit(); \
 } while (0)
 

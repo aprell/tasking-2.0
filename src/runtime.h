@@ -129,10 +129,6 @@ Task *task_alloc(void);
 bool RT_loop_init(long *start, long *end);
 bool RT_loop_split(long next, long *end);
 
-// Specifically for master thread
-int RT_helper_create(void);
-int RT_helper_join(void);
-
 // For user code
 int RT_check_for_steal_requests(void);
 
