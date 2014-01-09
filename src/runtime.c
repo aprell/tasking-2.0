@@ -12,7 +12,7 @@ UTEST_MAIN() {}
 #include "timer.h"
 
 #define MANAGER	if (is_manager)
-#define MAXNP 48
+#define MAXNP 256
 #define PARTITIONS 1
 #include "partition.c"
 
@@ -211,7 +211,7 @@ int RT_init(void)
 	int i;
 
 #if PARTITIONS == 1
-	PARTITION_ASSIGN_all(1);
+	PARTITION_ASSIGN_xlarge(1);
 #elif PARTITIONS == 2
 	PARTITION_ASSIGN_west(1);
 	PARTITION_ASSIGN_east(7);
