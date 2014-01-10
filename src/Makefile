@@ -1,6 +1,8 @@
-include ../common-gcc.mk
+include ../common-icc.mk
 
 CPPFLAGS += -DPLATFORM_SHM -DCHAN_SHM -DNTIME
+#CPPFLAGS += -DSTEAL_HALF
+#CPPFLAGS += -DLAST_VICTIM_FIRST
 
 CFLAGS += -pthread
 

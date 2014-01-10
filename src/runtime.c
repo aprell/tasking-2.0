@@ -76,8 +76,10 @@ static PRIVATE struct steal_request steal_req;
 // A worker can have only one outstanding steal request
 static PRIVATE bool requested;
 
+#ifdef LAST_VICTIM_FIRST
 // ID of last victim from which we got a task
-//static int last_victim = -1;
+static int last_victim = -1;
+#endif
 
 // Every worker keeps a list of victims that can be read by other workers
 // Shared state!
@@ -237,7 +239,7 @@ int RT_init(void)
 	// Capacity arbitrarily chosen
 	chan_requests[ID] = channel_alloc(sizeof(struct steal_request), num_workers, MPSC);
 	chan_tasks[ID] = channel_alloc(sizeof(Task *), 2, SPSC);
-	chan_notify[ID] = channel_alloc(sizeof(int), 0, SPSC);
+	chan_notify[ID] = channel_alloc(2 * sizeof(int), 0, SPSC);
 	
 	MANAGER {
 		chan_manager[ID] = channel_alloc(sizeof(struct steal_request), num_workers, MPSC);
@@ -646,7 +648,7 @@ static inline void send_steal_request(bool idle)
 		steal_req.idle = idle;
 #ifdef VICTIM_RANDOM
 		shuffle_victims();
-#if 0
+#ifdef LAST_VICTIM_FIRST
 		if (last_victim != -1) {
 			// Find last_victim in field my_victims and swap it to the front
 			int i;
@@ -702,7 +704,7 @@ static inline void decline_all_steal_requests(void)
 static void handle_steal_request(struct steal_request *req)
 {
 	Task *task;
-	int loot;
+	int loot[2] = { 0, ID };
 
 	if (req->ID == ID) {
 		// Got own steal request
@@ -723,7 +725,7 @@ static void handle_steal_request(struct steal_request *req)
 	timer_start(&timer_send_recv_tasks);
 #ifdef STEAL_HALF
 	Task *tail;
-	task = deque_list_tl_steal_half(deque, &tail, &loot);
+	task = deque_list_tl_steal_half(deque, &tail, &loot[0]);
 #else
 	task = deque_list_tl_steal(deque);
 #endif
@@ -738,12 +740,12 @@ static void handle_steal_request(struct steal_request *req)
 		//LOG("Worker %2d: sending task to worker %d\n", ID, req->ID);
 		assert(channel_send(chan_tasks[req->ID], (void *)&task, sizeof(Task *)));
 #ifdef STEAL_HALF
-		if (loot > 1)
+		if (loot[0] > 1)
 			assert(channel_send(chan_tasks[req->ID], (void *)&tail, sizeof(Task *)));
 #else
-		loot = 1;
+		loot[0] = 1;
 #endif
-		assert(channel_send(chan_notify[req->ID], &loot, sizeof(loot)));
+		assert(channel_send(chan_notify[req->ID], loot, sizeof(loot)));
 		timer_end(&timer_send_recv_tasks);
 	} else {
 		// Got steal request, but can't serve it
@@ -786,8 +788,7 @@ void *schedule(UNUSED(void *args))
 #ifdef STEAL_HALF
 	Task *tail;
 #endif
-	//int n[8];
-	int loot;
+	int loot[2];
 
 	//timer_start(&timer_idle);
 
@@ -804,7 +805,7 @@ void *schedule(UNUSED(void *args))
 		// (2) Work-stealing request
 		assert(requested);
 		timer_start(&timer_idle);
-		while (!channel_receive(chan_notify[ID], &loot, sizeof(loot))) {
+		while (!channel_receive(chan_notify[ID], loot, sizeof(loot))) {
 			assert(deque_list_tl_empty(deque));
 			assert(requested);
 			decline_all_steal_requests();
@@ -817,14 +818,16 @@ void *schedule(UNUSED(void *args))
 		timer_start(&timer_send_recv_tasks);
 		assert(channel_receive(chan_tasks[ID], (void *)&task, sizeof(Task *)));
 #ifdef STEAL_HALF
-		if (loot > 1) {
+		if (loot[0] > 1) {
 			assert(channel_receive(chan_tasks[ID], (void *)&tail, sizeof(Task *)));
-			task = deque_list_tl_pop(deque_list_tl_prepend(deque, task, tail, loot));
+			task = deque_list_tl_pop(deque_list_tl_prepend(deque, task, tail, loot[0]));
 		}
 #endif
 		timer_end(&timer_send_recv_tasks);
-		//last_victim = n[1];
-		//assert(last_victim != 1 && last_victim != ID);
+#ifdef LAST_VICTIM_FIRST
+		last_victim = loot[1];
+		assert(last_victim != 1 && last_victim != ID);
+#endif
 		requested = false;
 		//TODO Figure out at which points updates are reasonable
 		//UPDATE();
@@ -869,8 +872,7 @@ int RT_barrier(void)
 #ifdef STEAL_HALF
 	Task *tail;
 #endif
-	int loot;
-	//int n[8];
+	int loot[2];
 	bool quiescent;
 
 empty_local_queue:
@@ -886,7 +888,7 @@ empty_local_queue:
 	
 	assert(requested);
 	timer_start(&timer_idle);
-	while (!channel_receive(chan_notify[ID], &loot, sizeof(loot))) {
+	while (!channel_receive(chan_notify[ID], loot, sizeof(loot))) {
 		assert(deque_list_tl_empty(deque));
 		assert(requested);
 		decline_all_steal_requests();
@@ -900,14 +902,16 @@ empty_local_queue:
 	timer_start(&timer_send_recv_tasks);
 	assert(channel_receive(chan_tasks[ID], (void *)&task, sizeof(Task *)));
 #ifdef STEAL_HALF
-	if (loot > 1) {
+	if (loot[0] > 1) {
 		assert(channel_receive(chan_tasks[ID], (void *)&tail, sizeof(Task *)));
-		task = deque_list_tl_pop(deque_list_tl_prepend(deque, task, tail, loot));
+		task = deque_list_tl_pop(deque_list_tl_prepend(deque, task, tail, loot[0]));
 	}
 #endif
 	timer_end(&timer_send_recv_tasks);
-	//last_victim = n[1];
-	//assert(last_victim != 1 && last_victim != ID);
+#ifdef LAST_VICTIM_FIRST
+	last_victim = loot[1];
+	assert(last_victim != 1 && last_victim != ID);
+#endif
 	requested = false;
 	//TODO Figure out at which points updates are reasonable
 	//UPDATE();
@@ -947,8 +951,7 @@ void RT_force_future_channel(Channel *chan, void *data, unsigned int size)
 #endif
 	Task *this = get_current_task();
 	struct steal_request req;
-	//int n[8];
-	int loot;
+	int loot[2];
 
 	assert(channel_impl(chan) == SPSC);
 
@@ -973,7 +976,7 @@ void RT_force_future_channel(Channel *chan, void *data, unsigned int size)
 		send_steal_request(false);
 		timer_end(&timer_send_recv_sreqs);
 		timer_start(&timer_idle);
-		while (!channel_receive(chan_notify[ID], &loot, sizeof(loot))) {
+		while (!channel_receive(chan_notify[ID], loot, sizeof(loot))) {
 			assert(requested);
 			timer_end(&timer_idle);
 			// Check if someone requested to steal from us
@@ -989,14 +992,16 @@ void RT_force_future_channel(Channel *chan, void *data, unsigned int size)
 		timer_start(&timer_send_recv_tasks);
 		assert(channel_receive(chan_tasks[ID], (void *)&task, sizeof(task)));
 #ifdef STEAL_HALF
-		if (loot > 1) {
+		if (loot[0] > 1) {
 			assert(channel_receive(chan_tasks[ID], (void *)&tail, sizeof(Task *)));
-			task = deque_list_tl_pop(deque_list_tl_prepend(deque, task, tail, loot));
+			task = deque_list_tl_pop(deque_list_tl_prepend(deque, task, tail, loot[0]));
 		}
 #endif
 		timer_end(&timer_send_recv_tasks);
-		//last_victim = n[1];
-		//assert(last_victim != 1 && last_victim != ID);
+#ifdef LAST_VICTIM_FIRST
+		last_victim = loot[1];
+		assert(last_victim != 1 && last_victim != ID);
+#endif
 		requested = false;
 		//TODO Figure out at which points updates are reasonable
 		//UPDATE();
@@ -1139,7 +1144,7 @@ static void split_loop(Task *task, long start, long *end, struct steal_request *
 {
 	Task *dup = task_alloc();
 	long split;
-	int loot = 1;
+	int loot[2] = { 1, ID };
 
 	// dup is a copy of the current task
 	*dup = *task;
@@ -1163,7 +1168,7 @@ static void split_loop(Task *task, long start, long *end, struct steal_request *
 	}
 
 	assert(channel_send(chan_tasks[req->ID], (void *)&dup, sizeof(dup)));
-	assert(channel_send(chan_notify[req->ID], &loot, sizeof(loot)));
+	assert(channel_send(chan_notify[req->ID], loot, sizeof(loot)));
 
 	// Current task continues with lower half of iterations
 	task->end = *end = split;
