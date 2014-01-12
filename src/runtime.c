@@ -316,12 +316,9 @@ Task *task_alloc(void)
 	return deque_list_tl_task_new(deque);
 }
 
-#define VICTIM_RANDOM
-//#define VICTIM_ROUNDR
-
-#ifdef VICTIM_ROUNDR
+#ifdef STEAL_ROUNDROBIN
 // Chooses the next victim at random
-// Can be combined with VICTIM_ROUNDR for example
+// Can be combined with STEAL_ROUNDROBIN for example
 // FIXME: Problem if worker is alone in partition!
 static inline int random_victim(int thief)
 {
@@ -331,31 +328,28 @@ static inline int random_victim(int thief)
 		do {
 			int rand = rand_r(&seed) % (my_partition->num_workers_rt-1);
 			victim = my_victims[rand];
-		} while (victim == thief || victim == ID || victim == 1);
-		//} while (victim == thief || victim == ID || victim == 1 || 
-		//		 victim == 7 || victim == 25 || victim == 31);
+		} while (victim == thief || victim == ID || victim == my_partition->manager);
 	}
 
 	//assert(is_in_my_partition(victim));
 
 	return victim;
 }
-#endif // VICTIM_ROUNDR
+#endif // STEAL_ROUNDROBIN
 
 // Selects the next victim for thief depending on a given strategy
-// VICTIM_RANDOM: random victim selection (+ use of last_victim)
-// VICTIM_ROUNDR: round robin victim selection
+// STEAL_RANDOM: random victim selection (+ use of last_victim)
+// STEAL_ROUNDROBIN: round robin victim selection
 static inline int select_victim(struct steal_request *req)
 {
 	int victim;
 
-#ifdef VICTIM_ROUNDR
-	if (next_worker == 1)
-	//if (next_worker == 1 || next_worker == 7 || next_worker == 25 || next_worker == 31)
+#ifdef STEAL_ROUNDROBIN
+	if (next_worker == my_partition->manager)
 		victim = next_worker + 1;
 	else
 		victim = next_worker;
-#else // VICTIM_RANDOM
+#else // STEAL_RANDOM
 	victim = victims[req->ID][req->try];
 #endif
 
@@ -511,9 +505,9 @@ static int loadbalance(void)
 						}
 					}
 					// Pass steal request on to random victim
-#ifdef VICTIM_ROUNDR
+#ifdef STEAL_ROUNDROBIN
 					SEND_REQ_WORKER(random_victim(req.ID), &req);
-#else // VICTIM_RANDOM
+#else // STEAL_RANDOM
 					SEND_REQ_WORKER(select_victim(&req), &req);
 #endif
 				} else {
@@ -531,9 +525,9 @@ static int loadbalance(void)
 								num_workers_q++;
 							}
 							// Pass it back to partition
-#ifdef VICTIM_ROUNDR
+#ifdef STEAL_ROUNDROBIN
 							SEND_REQ_WORKER(random_victim(req.ID), &req);
-#else // VICTIM_RANDOM
+#else // STEAL_RANDOM
 							SEND_REQ_WORKER(select_victim(&req), &req);
 #endif
 						} else { // No, this is a new steal request from our partition
@@ -577,9 +571,9 @@ static int loadbalance(void)
 							while (channel_peek(chan_barrier)) ;
 							after_barrier = true;
 						}
-#ifdef VICTIM_ROUNDR
+#ifdef STEAL_ROUNDROBIN
 						SEND_REQ_WORKER(random_victim(req.ID), &req);
-#else // VICTIM_RANDOM
+#else // STEAL_RANDOM
 						SEND_REQ_WORKER(select_victim(&req), &req);
 #endif
 					}
@@ -646,7 +640,7 @@ static inline void send_steal_request(bool idle)
 {
 	if (!requested) {
 		steal_req.idle = idle;
-#ifdef VICTIM_RANDOM
+#ifdef STEAL_RANDOM
 		shuffle_victims();
 #ifdef LAST_VICTIM_FIRST
 		if (last_victim != -1) {
@@ -662,7 +656,7 @@ static inline void send_steal_request(bool idle)
 #endif
 		copy_victims();
 		SEND_REQ_WORKER(select_victim(&steal_req), &steal_req);
-#else // VICTIM_ROUNDR
+#else // STEAL_ROUNDROBIN
 		SEND_REQ_WORKER(random_victim(ID), &steal_req);
 #endif
 		requested = true;
