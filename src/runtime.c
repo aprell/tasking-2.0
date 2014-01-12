@@ -128,11 +128,9 @@ static void init_victims(int ID)
 		}
 	}
 
-	// XXX my_victims contains all possible victims in my_partition
+	// my_victims contains all possible victims in my_partition
 	for (i = 0, j = 0; i < my_partition->num_workers_rt; i++) {
-		if (workers[ID][i].rank != ID && workers[ID][i].rank != 1) {
-		//if (workers[ID][i].rank != ID && workers[ID][i].rank != 1 && 
-		//	workers[ID][i].rank != 7 && workers[ID][i].rank != 25 && workers[ID][i].rank != 31) {
+		if (workers[ID][i].rank != ID && workers[ID][i].rank != my_partition->manager) {
 			my_victims[j] = workers[ID][i].rank;
 			//LOG("Worker %2d: victim[%d] = %d\n", ID, j, my_victims[j]);
 			j++;
@@ -212,27 +210,13 @@ int RT_init(void)
 #if PARTITIONS == 1
 	PARTITION_ASSIGN_xlarge(1);
 #elif PARTITIONS == 2
-	PARTITION_ASSIGN_west(1);
-	PARTITION_ASSIGN_east(7);
-	//PARTITION_ASSIGN_north(25);
-	//PARTITION_ASSIGN_south(1);
-#elif PARTITIONS == 3
-	PARTITION_ASSIGN_A(1);
-	PARTITION_ASSIGN_B(7);
-	PARTITION_ASSIGN_C(25);
-#elif PARTITIONS == 4
-	PARTITION_ASSIGN_Q1(1);
-	PARTITION_ASSIGN_Q2(7);
-	PARTITION_ASSIGN_Q3(25);
-	PARTITION_ASSIGN_Q4(31);
+	PARTITION_ASSIGN_X(2);
+	PARTITION_ASSIGN_Y(1);
 #endif
 	PARTITION_SET();
 
-	//MANAGER LOG("Manager %d --> %d\n", ID, next_manager);
+	//MANAGER LOG("Manager %d --> Manager %d\n", ID, next_manager);
 	//LOG("Worker %d: in partition %d\n", ID, my_partition->number);
-	//LOG("Worker %d --> %d\n", ID, (next_worker == 1) ? next_worker + 1 : next_worker);
-	//LOG("Worker %d --> %d\n", ID, (next_worker == 1 || next_worker == 7 || 
-	//			                   next_worker == 25 || next_worker == 31) ? next_worker + 1 : next_worker);
 
 	deque = deque_list_tl_new();
 
@@ -257,7 +241,6 @@ int RT_init(void)
 
 	for (i = 0; i < my_partition->num_workers_rt; i++) {
 		if (ID == my_partition->workers[i]) {
-			//LOG("Worker %2d: I am (%d, %d)\n", ID, my_partition->number, i);
 			pID = i;
 			break;
 		}
