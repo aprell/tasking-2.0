@@ -1116,7 +1116,6 @@ static inline long split_half(long start, long end)
     return start + (end - start) / 2;
 }
 
-// Work-splitting modifies task in-place (avoids a new copy)!
 static void split_loop(Task *task, long start, long *end, struct steal_request *req)
 {
 	Task *dup = task_alloc();
