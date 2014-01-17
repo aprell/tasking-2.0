@@ -440,7 +440,7 @@ static int loadbalance(void)
 	// Load balancing loop
 	for (;;) {
 		if (channel_receive(chan_manager[ID], &req, sizeof(req))) {
-		// Right after a barrier, we must take extra measures to avoid 
+		// Right after a barrier, we must take extra measures to avoid
 		// premature quiescence detection. We need to filter out
 		// the old steal request from the master.
 		if (after_barrier) {
@@ -608,7 +608,7 @@ static int loadbalance(void)
 
 // Send steal request when number of local tasks <= REQ_THRESHOLD
 // Steal requests are always sent before actually running out of tasks.
-// REQ_THRESHOLD == 0 means that we send a steal request just _before_ we 
+// REQ_THRESHOLD == 0 means that we send a steal request just _before_ we
 // start executing the last task in the queue.
 #define REQ_THRESHOLD 0
 
@@ -703,7 +703,7 @@ static void handle_steal_request(struct steal_request *req)
 			return;
 		} else {
 			timer_start(&timer_send_recv_sreqs);
-			decline_steal_request(req);
+			decline_steal_request(req); // => send to manager
 			timer_end(&timer_send_recv_sreqs);
 			return;
 		}
@@ -724,13 +724,14 @@ static void handle_steal_request(struct steal_request *req)
 			req->quiescent = false;
 			SEND_REQ_MANAGER(req);
 		}
-		//LOG("Worker %2d: sending task to worker %d\n", ID, req->ID);
 		assert(channel_send(chan_tasks[req->ID], (void *)&task, sizeof(Task *)));
 #ifdef STEAL_HALF
 		if (loot[0] > 1)
 			assert(channel_send(chan_tasks[req->ID], (void *)&tail, sizeof(Task *)));
+		//LOG("Worker %2d: sending %d tasks to worker %d\n", ID, loot[0], req->ID);
 #else
 		loot[0] = 1;
+		//LOG("Worker %2d: sending task to worker %d\n", ID, req->ID);
 #endif
 		assert(channel_send(chan_notify[req->ID], loot, sizeof(loot)));
 		timer_end(&timer_send_recv_tasks);
@@ -928,6 +929,7 @@ RT_barrier_exit:
 			decline_steal_request(&req);
 		}
 	}
+
 	return 0;
 }
 
