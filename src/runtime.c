@@ -418,6 +418,8 @@ static bool global_quiescence(void)
 	return tok.val == num_partitions;
 }
 
+static PRIVATE unsigned int sent, declined;
+
 static int loadbalance(void)
 {
 	// Manager determines when a partition has reached quiescence
@@ -493,6 +495,7 @@ static int loadbalance(void)
 #else // STEAL_RANDOM
 					SEND_REQ_WORKER(select_victim(&req), &req);
 #endif
+					declined++;
 				} else {
 					// Steal request made full circle within partition
 					assert(req.try == my_partition->num_workers_rt-1);
@@ -513,6 +516,7 @@ static int loadbalance(void)
 #else // STEAL_RANDOM
 							SEND_REQ_WORKER(select_victim(&req), &req);
 #endif
+							declined++;
 						} else { // No, this is a new steal request from our partition
 							assert(req.pass == 0);
 							assert(!req.quiescent);
@@ -520,12 +524,14 @@ static int loadbalance(void)
 							// Pass request on to neighbor partition
 							req.pass++;
 							SEND_REQ_PARTITION(&req);
+							declined++;
 						} 
 					} else { // Steal request from remote partition
 						// Pass request on to neighbor partition
 						if (req.pass < num_partitions)
 							req.pass++;
 						SEND_REQ_PARTITION(&req);
+						declined++;
 					} 
 				}
 				break;
@@ -546,6 +552,7 @@ static int loadbalance(void)
 						num_workers_q--;
 						quiescent = false;
 						SEND_REQ_PARTITION(&req);
+						declined++;
 					} else {
 						if (my_partition->number == 0 && !after_barrier) {
 							// Assert global quiescence
@@ -559,6 +566,7 @@ static int loadbalance(void)
 #else // STEAL_RANDOM
 						SEND_REQ_WORKER(select_victim(&req), &req);
 #endif
+						declined++;
 					}
 				} else {
 					assert(req.try == 0 || req.try == my_partition->num_workers_rt-1);
@@ -569,6 +577,7 @@ static int loadbalance(void)
 					if (req.pass < num_partitions)
 						req.pass++;
 					SEND_REQ_PARTITION(&req);
+					declined++;
 				}
 				break;
 		}}
@@ -593,8 +602,6 @@ static int loadbalance(void)
 
 	return 0;
 }
-
-static PRIVATE unsigned int sent, declined;
 
 // Send steal request when number of local tasks <= REQ_THRESHOLD
 // Steal requests are always sent before actually running out of tasks.
@@ -834,7 +841,8 @@ int RT_schedule(void)
 		schedule(NULL);
 	}
 
-	//LOG("Worker %2d: %10u sent and %10u declined steal requests\n", ID, sent, declined);
+	//LOG("Worker %d: %u steal requests sent\n", ID, sent);
+	//LOG("Worker %d: %u steal requests declined\n", ID, declined);
 
 	return 0;
 }
