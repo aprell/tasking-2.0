@@ -457,17 +457,20 @@ static int loadbalance(void)
 					after_barrier = false;
 					notes++;
 					continue;
+				} else {
+					assert(req.quiescent);
+					SEND_REQ_WORKER(MASTER_ID, &req);
+					continue;
 				}
 			}
 		}
+
 		// Quiescence information out of date?
 		if (req.partition == my_partition->number && workers_q[req.pID] && !req.quiescent) {
 			assert(num_workers_q > 0);
 			workers_q[req.pID] = 0;
 			num_workers_q--;
-			if (quiescent) {
-				quiescent = false;
-			}
+			quiescent = false;
 			notes++;
 			continue;
 		}
