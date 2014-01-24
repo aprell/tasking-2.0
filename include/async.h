@@ -97,7 +97,7 @@ void fname##_task_func(struct fname##_task_data *__d) \
 	timer_end(&timer_run_tasks); \
 	timer_start(&timer_enq_deq_tasks); \
 	/**(__v) = tmp;*/ \
-	assert(channel_send(chanref_get(__f), &tmp, sizeof(tmp))); \
+	channel_send(chanref_get(__f), &tmp, sizeof(tmp)); \
 }
 
 /* Call f(args) asynchronously
