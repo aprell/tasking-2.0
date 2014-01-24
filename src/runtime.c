@@ -199,6 +199,9 @@ PRIVATE mytimer_t timer_idle;
 PRIVATE mytimer_t timer_check;
 #endif
 
+PRIVATE unsigned int requests_sent, requests_handled;
+PRIVATE unsigned int requests_declined, tasks_sent;
+
 int RT_init(void)
 {
 	// A small sanity check
@@ -418,8 +421,6 @@ static bool global_quiescence(void)
 	return tok.val == num_partitions;
 }
 
-static PRIVATE unsigned int sent, declined;
-
 static int loadbalance(void)
 {
 	// Manager determines when a partition has reached quiescence
@@ -498,7 +499,7 @@ static int loadbalance(void)
 #else // STEAL_RANDOM
 					SEND_REQ_WORKER(select_victim(&req), &req);
 #endif
-					declined++;
+					requests_declined++;
 				} else {
 					// Steal request made full circle within partition
 					assert(req.try == my_partition->num_workers_rt-1);
@@ -519,22 +520,25 @@ static int loadbalance(void)
 #else // STEAL_RANDOM
 							SEND_REQ_WORKER(select_victim(&req), &req);
 #endif
-							declined++;
+							requests_declined++;
 						} else { // No, this is a new steal request from our partition
 							assert(req.pass == 0);
 							assert(!req.quiescent);
 							assert(!workers_q[req.pID]);
 							// Pass request on to neighbor partition
+							// Note: We could optimize away the send in the case
+							// of only one partition, but performance doesn't
+							// seem to benefit.
 							req.pass++;
 							SEND_REQ_PARTITION(&req);
-							declined++;
+							requests_declined++;
 						} 
 					} else { // Steal request from remote partition
 						// Pass request on to neighbor partition
 						if (req.pass < num_partitions)
 							req.pass++;
 						SEND_REQ_PARTITION(&req);
-						declined++;
+						requests_declined++;
 					} 
 				}
 				break;
@@ -555,7 +559,7 @@ static int loadbalance(void)
 						num_workers_q--;
 						quiescent = false;
 						SEND_REQ_PARTITION(&req);
-						declined++;
+						requests_declined++;
 					} else {
 						if (my_partition->number == 0 && !after_barrier) {
 							// Assert global quiescence
@@ -569,7 +573,7 @@ static int loadbalance(void)
 #else // STEAL_RANDOM
 						SEND_REQ_WORKER(select_victim(&req), &req);
 #endif
-						declined++;
+						requests_declined++;
 					}
 				} else {
 					assert(req.try == 0 || req.try == my_partition->num_workers_rt-1);
@@ -580,7 +584,7 @@ static int loadbalance(void)
 					if (req.pass < num_partitions)
 						req.pass++;
 					SEND_REQ_PARTITION(&req);
-					declined++;
+					requests_declined++;
 				}
 				break;
 		}}
@@ -653,7 +657,7 @@ static inline void send_steal_request(bool idle)
 		SEND_REQ_WORKER(random_victim(ID), &steal_req);
 #endif
 		requested = true;
-		sent++;
+		requests_sent++;
 	}
 }
 
@@ -661,7 +665,7 @@ static inline void send_steal_request(bool idle)
 // Pass it on to a different victim, or send it back to manager to prevent circling
 static inline void decline_steal_request(struct steal_request *req)
 {
-	declined++;
+	requests_declined++;
 	req->try++;
 	if (req->try < my_partition->num_workers_rt-1) {
 		SEND_REQ_WORKER(select_victim(req), req);
@@ -734,6 +738,8 @@ static void handle_steal_request(struct steal_request *req)
 		//LOG("Worker %2d: sending task to worker %d\n", ID, req->ID);
 #endif
 		channel_send(chan_notify[req->ID], loot, sizeof(loot));
+		requests_handled++;
+		tasks_sent += loot[0];
 		timer_end(&timer_send_recv_tasks);
 	} else {
 		// Got steal request, but can't serve it
@@ -844,9 +850,6 @@ int RT_schedule(void)
 	} else {
 		schedule(NULL);
 	}
-
-	//LOG("Worker %d: %u steal requests sent\n", ID, sent);
-	//LOG("Worker %d: %u steal requests declined\n", ID, declined);
 
 	return 0;
 }
@@ -1158,6 +1161,8 @@ static void split_loop(Task *task, long start, long *end, struct steal_request *
 
 	channel_send(chan_tasks[req->ID], (void *)&dup, sizeof(dup));
 	channel_send(chan_notify[req->ID], loot, sizeof(loot));
+	requests_handled++;
+	tasks_sent++;
 
 	// Current task continues with lower half of iterations
 	task->end = *end = split;

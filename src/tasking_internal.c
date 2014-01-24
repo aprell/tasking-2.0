@@ -123,6 +123,9 @@ extern PRIVATE mytimer_t timer_send_recv_sreqs;
 extern PRIVATE mytimer_t timer_idle;
 #endif
 
+extern PRIVATE unsigned int requests_sent, requests_handled;
+extern PRIVATE unsigned int requests_declined, tasks_sent;
+
 int tasking_internal_statistics(void)
 {
 	MASTER {
@@ -134,6 +137,10 @@ int tasking_internal_statistics(void)
 
 	tasking_internal_barrier();
 
+	printf("Worker %d: %u steal requests sent\n", ID, requests_sent);
+	printf("Worker %d: %u steal requests handled\n", ID, requests_handled);
+	printf("Worker %d: %u steal requests declined\n", ID, requests_declined);
+	printf("Worker %d: %u tasks sent\n", ID, tasks_sent);
 
 #ifndef NTIME
 	printf("Worker %d, %u, %.2lf, "
@@ -148,7 +155,7 @@ int tasking_internal_statistics(void)
 			timer_elapsed(&timer_enq_deq_tasks, timer_ms),
 			timer_elapsed(&timer_idle, timer_ms));
 #else
-	printf("Worker %d: %u tasks\n", ID, num_tasks_exec_worker);
+	printf("Worker %d: %u tasks executed\n", ID, num_tasks_exec_worker);
 #endif
 
 	fflush(stdout);
