@@ -352,9 +352,11 @@ static inline void split_loop(Task *, long, long *, struct steal_request *);
 
 #define SEND_REQ(chan, req) \
 do { \
+	int __nfail = 0; \
 	/* Problematic if the target worker has already left scheduling */\
 	/* ==> send to full channel will block the sender */\
 	while (!channel_send(chan, req, sizeof(*(req)))) { \
+		if (++__nfail % 10 == 0) LOG("*** Worker %d: blocked on channel send\n", ID); \
 		if (*tasking_finished) break; \
 	} \
 } while (0)
