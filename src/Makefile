@@ -3,6 +3,7 @@ include ../common-icc.mk
 CPPFLAGS += -DPLATFORM_SHM -DCHAN_SHM -DNTIME
 CPPFLAGS += -DSTEAL_RANDOM
 #CPPFLAGS += -DSTEAL_HALF
+#CPPFLAGS += -DVICTIM_CHECK
 #CPPFLAGS += -DLAST_VICTIM_FIRST
 
 CFLAGS += -pthread
@@ -68,7 +69,7 @@ uts_par_LIBS	= m
 #//// TEST PROGRAMS ////////////////////////////////////////////////////////#
 
 sum_SRCS = sum.c $(libtasking_SRCS)
-sum_LIBS = 
+sum_LIBS =
 
 fibgen_SRCS 	= fibgen.c $(libtasking_SRCS)
 looptest_SRCS	= looptest.c $(libtasking_SRCS)

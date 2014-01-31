@@ -23,7 +23,7 @@ static PRIVATE DequeListTL *deque;
 
 // Manager/worker -> manager: inter-partition steal requests (MPSC)
 // chan_manager and chan_requests could be merged, but only if we don't care
-// about mutlithreading managers 
+// about mutlithreading managers
 static Channel *chan_manager[MAXNP];
 
 // Manager/worker -> worker: intra-partition steal requests (MPSC)
@@ -51,7 +51,7 @@ struct token {
 // at a time. No need to change the work-stealing algorithm.
 // Another idea would be to be able to request a task from a specific worker,
 // for example, in order to implement leapfrogging. A problem might be that
-// handling such a request could also delay other requests.  
+// handling such a request could also delay other requests.
 struct steal_request {
 	int ID;			// ID of requesting worker
 	int try;	   	// 0 <= try <= num_workers_rt
@@ -89,7 +89,7 @@ static int *victims[MAXNP];
 static PRIVATE int *my_victims;
 
 // A worker has a unique ID within its partition
-// 0 <= pID <= num_workers_rt 
+// 0 <= pID <= num_workers_rt
 static PRIVATE int pID;
 
 struct worker_info {
@@ -118,7 +118,7 @@ static void init_victims(int ID)
 	}
 
 	// This is only really needed for latency-oriented work-stealing
-	// We need a different "latency map" depending on which worker is thief 
+	// We need a different "latency map" depending on which worker is thief
 	// In random work-stealing, we don't care which worker is thief because
 	// we always select a victim at random
 	for (i = 0; i < num_workers; i++) {
@@ -138,11 +138,11 @@ static void init_victims(int ID)
 	}
 
 	// We put our own ID there because eventually, after N unsuccessful tries
-	// (N being the number of potential victims in my_partition), the steal 
+	// (N being the number of potential victims in my_partition), the steal
 	// request must go back to the thief. Quiescence detection depends on that.
 	my_victims[j] = ID;
 
-	MANAGER LOG("Manager %2d: %d of %d workers available\n", ID, 
+	MANAGER LOG("Manager %2d: %d of %d workers available\n", ID,
 			my_partition->num_workers_rt-1, my_partition->num_workers);
 }
 
@@ -227,9 +227,9 @@ int RT_init(void)
 	chan_requests[ID] = channel_alloc(sizeof(struct steal_request), num_workers, MPSC);
 	chan_tasks[ID] = channel_alloc(sizeof(Task *), 2, SPSC);
 	chan_notify[ID] = channel_alloc(2 * sizeof(int), 0, SPSC);
-	
+
 	MANAGER {
-		chan_manager[ID] = channel_alloc(sizeof(struct steal_request), num_workers, MPSC);
+		chan_manager[ID] = channel_alloc(sizeof(struct steal_request), num_workers*2, MPSC);
 		chan_quiescence[ID] = channel_alloc(sizeof(struct token), 0, SPSC);
 	}
 
@@ -326,6 +326,32 @@ static inline int random_victim(int thief)
 // Selects the next victim for thief depending on a given strategy
 // STEAL_RANDOM: random victim selection (+ use of last_victim)
 // STEAL_ROUNDROBIN: round robin victim selection
+#ifdef VICTIM_CHECK
+
+#define LIKELY_HAS_TASKS(ID) (!channel_closed(chan_requests[ID]))
+#define REQ_CLOSE()            channel_close(chan_requests[ID])
+#define REQ_OPEN()             channel_open(chan_requests[ID])
+
+static inline int select_victim(struct steal_request *req)
+{
+	int victim, i;
+
+	for (i = req->try; i < my_partition->num_workers_rt-2; i++) {
+		victim = victims[req->ID][i];
+		if (LIKELY_HAS_TASKS(victim)) {
+			//assert(is_in_my_partition(victim));
+			//LOG("Worker %d: Found victim after %i tries\n", ID, i);
+			return victim;
+		}
+		req->try++;
+	}
+
+	victim = victims[req->ID][i];
+	assert(victim == req->ID);
+
+	return victim;
+}
+#else
 static inline int select_victim(struct steal_request *req)
 {
 	int victim;
@@ -343,6 +369,7 @@ static inline int select_victim(struct steal_request *req)
 
 	return victim;
 }
+#endif
 
 static inline void UPDATE(void);
 static inline void send_steal_request(bool idle);
@@ -418,7 +445,7 @@ static bool global_quiescence(void)
 		tok.val++;
 		SEND_QSC_MSG(&tok);
 		if (*tasking_finished) break;
-	} 
+	}
 
 	return tok.val == num_partitions;
 }
@@ -499,7 +526,7 @@ static int loadbalance(void)
 #ifdef STEAL_ROUNDROBIN
 					SEND_REQ_WORKER(random_victim(req.ID), &req);
 #else // STEAL_RANDOM
-					SEND_REQ_WORKER(select_victim(&req), &req);
+					SEND_REQ_WORKER(victims[req.ID][0], &req);
 #endif
 					requests_declined++;
 				} else {
@@ -520,7 +547,7 @@ static int loadbalance(void)
 #ifdef STEAL_ROUNDROBIN
 							SEND_REQ_WORKER(random_victim(req.ID), &req);
 #else // STEAL_RANDOM
-							SEND_REQ_WORKER(select_victim(&req), &req);
+							SEND_REQ_WORKER(victims[req.ID][0], &req);
 #endif
 							requests_declined++;
 						} else { // No, this is a new steal request from our partition
@@ -534,14 +561,14 @@ static int loadbalance(void)
 							req.pass++;
 							SEND_REQ_PARTITION(&req);
 							requests_declined++;
-						} 
+						}
 					} else { // Steal request from remote partition
 						// Pass request on to neighbor partition
 						if (req.pass < num_partitions)
 							req.pass++;
 						SEND_REQ_PARTITION(&req);
 						requests_declined++;
-					} 
+					}
 				}
 				break;
 			/////////////////////////////////////////////////////////////////
@@ -573,7 +600,7 @@ static int loadbalance(void)
 #ifdef STEAL_ROUNDROBIN
 						SEND_REQ_WORKER(random_victim(req.ID), &req);
 #else // STEAL_RANDOM
-						SEND_REQ_WORKER(select_victim(&req), &req);
+						SEND_REQ_WORKER(victims[req.ID][0], &req);
 #endif
 						requests_declined++;
 					}
@@ -633,12 +660,13 @@ static inline void UPDATE(void)
 }
 
 // We make sure that there is at most one outstanding steal request per worker
-// New steal requests are created with idle == false, to show that the 
+// New steal requests are created with idle == false, to show that the
 // requesting worker is still working on a number of remaining tasks.
 static inline void send_steal_request(bool idle)
 {
 	if (!requested) {
 		steal_req.idle = idle;
+		steal_req.try = 0;
 #ifdef STEAL_RANDOM
 		shuffle_victims();
 #ifdef LAST_VICTIM_FIRST
@@ -670,9 +698,17 @@ static inline void decline_steal_request(struct steal_request *req)
 	requests_declined++;
 	req->try++;
 	if (req->try < my_partition->num_workers_rt-1) {
+		assert(ID != req->ID);
 		SEND_REQ_WORKER(select_victim(req), req);
 	} else {
-		SEND_REQ_MANAGER(req);
+		assert(ID == req->ID);
+		if (ID != MASTER_ID && req->quiescent) {
+			// Don't bother manager; we are quiescent anyway
+			req->try = 0;
+			SEND_REQ_WORKER(select_victim(req), req);
+		} else {
+		  SEND_REQ_MANAGER(req);
+		}
 	}
 }
 
@@ -682,7 +718,7 @@ static inline void decline_all_steal_requests(void)
 
 	timer_end(&timer_idle);
 
-	while (RECV_REQ(&req)) {
+	if (RECV_REQ(&req)) {
 		timer_start(&timer_send_recv_sreqs);
 		if (req.ID == ID && !req.idle) {
 			req.idle = true;
@@ -749,6 +785,9 @@ static void handle_steal_request(struct steal_request *req)
 		timer_end(&timer_send_recv_tasks);
 		assert(deque_list_tl_empty(deque));
 		timer_start(&timer_send_recv_sreqs);
+#ifdef VICTIM_CHECK
+		REQ_CLOSE();
+#endif
 		decline_steal_request(req);
 		timer_end(&timer_send_recv_sreqs);
 	}
@@ -817,6 +856,9 @@ void *schedule(UNUSED(void *args))
 		if (loot[0] > 1) {
 			channel_receive(chan_tasks[ID], (void *)&tail, sizeof(Task *));
 			task = deque_list_tl_pop(deque_list_tl_prepend(deque, task, tail, loot[0]));
+#ifdef VICTIM_CHECK
+			REQ_OPEN();
+#endif
 		}
 #endif
 		timer_end(&timer_send_recv_tasks);
@@ -879,7 +921,7 @@ empty_local_queue:
 
 	if (num_workers == 1)
 		return 0;
-	
+
 	assert(requested);
 	timer_start(&timer_idle);
 	while (!channel_receive(chan_notify[ID], loot, sizeof(loot))) {
@@ -899,6 +941,9 @@ empty_local_queue:
 	if (loot[0] > 1) {
 		channel_receive(chan_tasks[ID], (void *)&tail, sizeof(Task *));
 		task = deque_list_tl_pop(deque_list_tl_prepend(deque, task, tail, loot[0]));
+#ifdef VICTIM_CHECK
+		REQ_OPEN();
+#endif
 	}
 #endif
 	timer_end(&timer_send_recv_tasks);
@@ -990,6 +1035,9 @@ void RT_force_future_channel(Channel *chan, void *data, unsigned int size)
 		if (loot[0] > 1) {
 			channel_receive(chan_tasks[ID], (void *)&tail, sizeof(Task *));
 			task = deque_list_tl_pop(deque_list_tl_prepend(deque, task, tail, loot[0]));
+#ifdef VICTIM_CHECK
+			REQ_OPEN();
+#endif
 		}
 #endif
 		timer_end(&timer_send_recv_tasks);
@@ -1017,6 +1065,10 @@ void push(Task *task)
 	struct steal_request req;
 
 	deque_list_tl_push(deque, task);
+
+#ifdef VICTIM_CHECK
+	REQ_OPEN();
+#endif
 
 	timer_end(&timer_enq_deq_tasks);
 
@@ -1074,7 +1126,7 @@ Task *pop_child(void)
 	timer_end(&timer_enq_deq_tasks);
 
 	UPDATE();
-	
+
 	// Check if someone requested to steal from us
 	while (RECV_REQ(&req)) {
 		// If we just popped a loop task, we may split right here
@@ -1092,7 +1144,7 @@ Task *pop_child(void)
 bool RT_loop_init(long *start, long *end)
 {
 	Task *this = get_current_task();
-	
+
 	if (!this->is_loop)
 		return false;
 
