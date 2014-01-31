@@ -9,12 +9,12 @@
 #include "utest.h"
 
 struct SHM_channel {
-	pthread_mutex_t head_lock, tail_lock; 
+	pthread_mutex_t head_lock, tail_lock;
 	// The owner that has allocated the channel
 	int owner;
 	// Internal implementation (MPMC, MPSC, or SPSC)
 	int impl;
-	int is_closed;
+	int closed;
 	// A channel of size n can buffer n-1 items
 	// This allows us to distinguish between an empty channel and a full channel
 	// without needing to calculate (or maintain) the number of items
@@ -67,7 +67,7 @@ Channel *channel_alloc(unsigned int size, unsigned int n, int impl)
 	unsigned int bufsize;
 
 	if (impl != MPMC && impl != MPSC && impl != SPSC) {
-		fprintf(stderr, "Warning: Requested invalid channel implementation\n"); 
+		fprintf(stderr, "Warning: Requested invalid channel implementation\n");
 		fprintf(stderr, "Must be either MPMC, MPSC, or SPSC\n");
 		return NULL;
 	}
@@ -93,7 +93,7 @@ Channel *channel_alloc(unsigned int size, unsigned int n, int impl)
 	//XXX
 	chan->owner = -1;
 	chan->impl = impl;
-	chan->is_closed = 0;
+	chan->closed = 0;
 	chan->size = n + 1;
 	chan->itemsize = size;
 	chan->head = 0;
@@ -119,7 +119,7 @@ void channel_free(Channel *chan)
 }
 
 //////////////////////////////////////////////////////////////////////////////
-//	
+//
 //	MPMC implementation
 //
 //////////////////////////////////////////////////////////////////////////////
@@ -140,7 +140,7 @@ static bool channel_send_unbuffered_mpmc(Channel *chan, void *data, unsigned int
 	assert(IS_EMPTY_UNBUF(chan));
 	assert(size <= chan->itemsize);
 	memcpy(chan->buffer, data, size);
-	
+
 	chan->head = 1;
 	//assert(IS_FULL_UNBUF(chan));
 
@@ -170,7 +170,7 @@ static bool channel_send_mpmc(Channel *chan, void *data, unsigned int size)
 	assert(!IS_FULL(chan));
 	assert(size <= chan->itemsize);
 	memcpy(chan->buffer + chan->tail * chan->itemsize, data, size);
-	
+
 	chan->tail = INC(chan->tail, chan->size);
 
 	pthread_mutex_unlock(&chan->tail_lock);
@@ -194,7 +194,7 @@ static bool channel_recv_unbuffered_mpmc(Channel *chan, void *data, unsigned int
 	assert(IS_FULL_UNBUF(chan));
 	assert(size <= chan->itemsize);
 	memcpy(data, chan->buffer, size);
-	
+
 	chan->head = 0;
 	assert(IS_EMPTY_UNBUF(chan));
 
@@ -232,6 +232,7 @@ static bool channel_recv_mpmc(Channel *chan, void *data, unsigned int size)
 	return true;
 }
 
+// Unsynchronized!
 static bool channel_close_mpmc(Channel *chan)
 {
 	assert(chan != NULL);
@@ -241,25 +242,28 @@ static bool channel_close_mpmc(Channel *chan)
 		return false;
 	}
 
-	// Lock *sending* end of channel
-	pthread_mutex_lock(&chan->tail_lock);
+	atomic_set(&chan->closed, 1);
 
-	if (channel_closed(chan)) {
-		// Someone was faster
-		pthread_mutex_unlock(&chan->tail_lock);
+	return true;
+}
+
+// Unsynchronized!
+static bool channel_open_mpmc(Channel *chan)
+{
+	assert(chan != NULL);
+
+	if (!channel_closed(chan)) {
+		// Channel is open
 		return false;
 	}
 
-	assert(chan->is_closed == 0);
-	chan->is_closed = 1;
-
-	pthread_mutex_unlock(&chan->tail_lock);
+	atomic_set(&chan->closed, 0);
 
 	return true;
 }
 
 //////////////////////////////////////////////////////////////////////////////
-//	
+//
 //	MPSC implementation
 //
 //////////////////////////////////////////////////////////////////////////////
@@ -307,13 +311,38 @@ static bool channel_recv_mpsc(Channel *chan, void *data, unsigned int size)
 	return true;
 }
 
+// Unsynchronized!
 static bool channel_close_mpsc(Channel *chan)
 {
-	return channel_close_mpmc(chan);
+	assert(chan != NULL);
+
+	if (channel_closed(chan)) {
+		// Channel is already closed
+		return false;
+	}
+
+	atomic_set(&chan->closed, 1);
+
+	return true;
+}
+
+// Unsynchronized!
+static bool channel_open_mpsc(Channel *chan)
+{
+	assert(chan != NULL);
+
+	if (!channel_closed(chan)) {
+		// Channel is open
+		return false;
+	}
+
+	atomic_set(&chan->closed, 0);
+
+	return true;
 }
 
 //////////////////////////////////////////////////////////////////////////////
-//	
+//
 //	SPSC implementation
 //
 //////////////////////////////////////////////////////////////////////////////
@@ -348,7 +377,7 @@ static bool channel_send_spsc(Channel *chan, void *data, unsigned int size)
 	assert(!IS_FULL(chan));
 	assert(size <= chan->itemsize);
 	memcpy(chan->buffer + chan->tail * chan->itemsize, data, size);
-	
+
 	newtail = INC(chan->tail, chan->size);
 	__memory_barrier(); // Compiler + memory barrier
 	chan->tail = newtail;
@@ -356,6 +385,7 @@ static bool channel_send_spsc(Channel *chan, void *data, unsigned int size)
 	return true;
 }
 
+// Unsynchronized!
 static bool channel_close_spsc(Channel *chan)
 {
 	assert(chan != NULL);
@@ -365,8 +395,22 @@ static bool channel_close_spsc(Channel *chan)
 		return false;
 	}
 
-	atomic_set(&chan->is_closed, 1);
-	assert(channel_closed(chan));
+	atomic_set(&chan->closed, 1);
+
+	return true;
+}
+
+// Unsynchronized!
+static bool channel_open_spsc(Channel *chan)
+{
+	assert(chan != NULL);
+
+	if (!channel_closed(chan)) {
+		// Channel is open
+		return false;
+	}
+
+	atomic_set(&chan->closed, 0);
 
 	return true;
 }
@@ -379,10 +423,11 @@ static bool channel_recv_spsc(Channel *chan, void *data, unsigned int size)
 typedef bool (*channel_send_fn)(Channel *, void *, unsigned int);
 typedef bool (*channel_recv_fn)(Channel *, void *, unsigned int);
 typedef bool (*channel_close_fn)(Channel *);
+typedef bool (*channel_open_fn)(Channel *);
 
 // Function tables
-static channel_send_fn send_fn[3] = 
-{ 
+static channel_send_fn send_fn[3] =
+{
 	channel_send_mpmc,
 	channel_send_mpsc,
 	channel_send_spsc
@@ -400,6 +445,13 @@ static channel_close_fn close_fn[3] =
 	channel_close_mpmc,
 	channel_close_mpsc,
 	channel_close_spsc
+};
+
+static channel_open_fn open_fn[3] =
+{
+	channel_open_mpmc,
+	channel_open_mpsc,
+	channel_open_spsc
 };
 
 // Send an item to the channel
@@ -422,6 +474,12 @@ bool channel_close(Channel *chan)
 	return close_fn[chan->impl](chan);
 }
 
+// (Re)open channel
+bool channel_open(Channel *chan)
+{
+	return open_fn[chan->impl](chan);
+}
+
 int channel_owner(Channel *chan)
 {
 	if (!chan)
@@ -430,16 +488,16 @@ int channel_owner(Channel *chan)
 	return chan->owner;
 }
 
-unsigned int channel_peek(Channel *chan) 
-{ 
+unsigned int channel_peek(Channel *chan)
+{
 	if (channel_unbuffered(chan))
 		return NUM_ITEMS_UNBUF(chan);
-	
+
 	return NUM_ITEMS(chan);
 }
 
 unsigned int channel_capacity(Channel *chan)
-{ 
+{
 	return chan->size-1;
 }
 
@@ -453,7 +511,7 @@ int channel_impl(Channel *chan)
 	return chan->impl;
 }
 
-void channel_inspect(Channel *chan) 
+void channel_inspect(Channel *chan)
 {
 	unsigned int i, j;
 
@@ -461,7 +519,7 @@ void channel_inspect(Channel *chan)
 		return;
 
 	printf("[ ");
-	for (i = chan->head, j = 0; i != chan->tail; i = INC(i, chan->size), j++) 
+	for (i = chan->head, j = 0; i != chan->tail; i = INC(i, chan->size), j++)
 		printf("X ");
 	for (i = 0; i < chan->size - j; i++)
 		printf("  ");
@@ -471,10 +529,10 @@ void channel_inspect(Channel *chan)
 
 bool channel_closed(Channel *chan)
 {
-	return (bool)chan->is_closed;
+	return (bool)(atomic_read(&chan->closed) == 1);
 }
 
-#define MASTER 		WORKER(0)	
+#define MASTER 		WORKER(0)
 #define WORKER(id) 	if (A->ID == (id))
 #define PRINT(...)  { printf(__VA_ARGS__); fflush(stdout); }
 
@@ -498,10 +556,10 @@ static void *thread_func(void *args)
 {
 	struct thread_args *A = (struct thread_args *)args;
 
-#define SENDER	 1 
+#define SENDER	 1
 #define RECEIVER 0
 
-	// 
+	//
 	// Worker RECEIVER:
 	// ---------
 	// <- chan
@@ -542,7 +600,7 @@ UTEST(Channel)
 
 	// Test all channel implementations
 	for (I = MPMC; I <= SPSC; I++) {
-	
+
 	for (i = 0; i < 2; i++) {
 		switch (i) {
 		case 0:
@@ -586,11 +644,11 @@ static void *thread_func_2(void *args)
 {
 	struct thread_args *A = (struct thread_args *)args;
 
-#define SENDER	 1 
+#define SENDER	 1
 #define RECEIVER 0
 #define N 100
 
-	// 
+	//
 	// Worker RECEIVER:
 	// ---------
 	// <- chan until closed and empty
@@ -628,7 +686,7 @@ UTEST(Channel_close)
 
 	// Test all channel implementations
 	for (I = MPMC; I <= SPSC; I++) {
-	
+
 	for (i = 0; i < 2; i++) {
 		switch (i) {
 		case 0:
@@ -639,7 +697,7 @@ UTEST(Channel_close)
 			check_equal(channel_buffered(chan), true);
 			check_equal(channel_unbuffered(chan), false);
 			check_equal(chan->impl, I);
-			check_equal(chan->is_closed, 0);
+			check_equal(chan->closed, 0);
 			break;
 		case 1:
 			// Unbuffered
@@ -649,7 +707,7 @@ UTEST(Channel_close)
 			check_equal(channel_buffered(chan), false);
 			check_equal(channel_unbuffered(chan), true);
 			check_equal(chan->impl, I);
-			check_equal(chan->is_closed, 0);
+			check_equal(chan->closed, 0);
 			break;
 		}
 

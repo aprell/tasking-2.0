@@ -14,7 +14,7 @@ enum {
 };
 
 // Different channel implementations, in order of decreasing generality
-enum { 
+enum {
 	MPMC, // multiple producer, multiple consumer
 	MPSC, // multiple producer, single consumer
 	SPSC  // single producer, single consumer
@@ -29,7 +29,7 @@ Channel *channel_alloc(unsigned int size, unsigned int n); // MPMC
 
 void channel_free(Channel *chan);
 
-// Send size bytes of data over chan 
+// Send size bytes of data over chan
 bool channel_send(Channel *chan, void *data, unsigned int size);
 
 // Receive size bytes of data from chan
@@ -54,11 +54,11 @@ int channel_impl(Channel *chan);
 
 //void channel_inspect(Channel *chan);
 
-// Closes channel chan, meaning no further values can be sent
+// Closes channel chan, meaning no further values will be received
 bool channel_close(Channel *chan);
 
-// Opens channel chan, meaning more values can be sent
-//bool channel_open(Channel *chan);
+// (Re)opens channel chan, meaning more values will be received
+bool channel_open(Channel *chan);
 
 // Returns true if channel is closed, false otherwise
 bool channel_closed(Channel *chan);

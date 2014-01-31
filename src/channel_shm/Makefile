@@ -1,4 +1,4 @@
-include ../../common.mk
+include ../../common-icc.mk
 
 CFLAGS += -pthread
 
