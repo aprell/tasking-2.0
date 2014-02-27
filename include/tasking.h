@@ -29,9 +29,7 @@ do { \
 // r is a pointer to the result value
 #define TASKING_FORCE_FUTURE(c, r) \
 do { \
-	typeof(*(r)) __tmp; \
-	RT_force_future_channel(c, &__tmp, sizeof(__tmp)); \
-	*(r) = __tmp; \
+	RT_force_future_channel(c, r, sizeof(typeof(*(r)))); \
 } while (0)
 
 extern PRIVATE int ID;
