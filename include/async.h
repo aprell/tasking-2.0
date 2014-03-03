@@ -49,6 +49,56 @@ do { \
 	typeof((x)->_4) _4 = (x)->_4; \
 	typeof((x)->_5) _5 = (x)->_5
 
+#define UNPACK6(x, _1, _2, _3, _4, _5, _6) \
+	typeof((x)->_1) _1 = (x)->_1; \
+	typeof((x)->_2) _2 = (x)->_2; \
+	typeof((x)->_3) _3 = (x)->_3; \
+	typeof((x)->_4) _4 = (x)->_4; \
+	typeof((x)->_5) _5 = (x)->_5; \
+	typeof((x)->_6) _6 = (x)->_6
+
+#define UNPACK7(x, _1, _2, _3, _4, _5, _6, _7) \
+	typeof((x)->_1) _1 = (x)->_1; \
+	typeof((x)->_2) _2 = (x)->_2; \
+	typeof((x)->_3) _3 = (x)->_3; \
+	typeof((x)->_4) _4 = (x)->_4; \
+	typeof((x)->_5) _5 = (x)->_5; \
+	typeof((x)->_6) _6 = (x)->_6; \
+	typeof((x)->_7) _7 = (x)->_7
+
+#define UNPACK8(x, _1, _2, _3, _4, _5, _6, _7, _8) \
+	typeof((x)->_1) _1 = (x)->_1; \
+	typeof((x)->_2) _2 = (x)->_2; \
+	typeof((x)->_3) _3 = (x)->_3; \
+	typeof((x)->_4) _4 = (x)->_4; \
+	typeof((x)->_5) _5 = (x)->_5; \
+	typeof((x)->_6) _6 = (x)->_6; \
+	typeof((x)->_7) _7 = (x)->_7; \
+	typeof((x)->_8) _8 = (x)->_8
+
+#define UNPACK9(x, _1, _2, _3, _4, _5, _6, _7, _8, _9) \
+	typeof((x)->_1) _1 = (x)->_1; \
+	typeof((x)->_2) _2 = (x)->_2; \
+	typeof((x)->_3) _3 = (x)->_3; \
+	typeof((x)->_4) _4 = (x)->_4; \
+	typeof((x)->_5) _5 = (x)->_5; \
+	typeof((x)->_6) _6 = (x)->_6; \
+	typeof((x)->_7) _7 = (x)->_7; \
+	typeof((x)->_8) _8 = (x)->_8; \
+	typeof((x)->_9) _9 = (x)->_9
+
+#define UNPACK10(x, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10) \
+	typeof((x)->_1)   _1 = (x)->_1; \
+	typeof((x)->_2)   _2 = (x)->_2; \
+	typeof((x)->_3)   _3 = (x)->_3; \
+	typeof((x)->_4)   _4 = (x)->_4; \
+	typeof((x)->_5)   _5 = (x)->_5; \
+	typeof((x)->_6)   _6 = (x)->_6; \
+	typeof((x)->_7)   _7 = (x)->_7; \
+	typeof((x)->_8)   _8 = (x)->_8; \
+	typeof((x)->_9)   _9 = (x)->_9; \
+	typeof((x)->_10) _10 = (x)->_10
+
 #define UNPACK_IMPL2(x, n, ...) UNPACK ## n(x, __VA_ARGS__)
 #define UNPACK_IMPL(x, n, ...) UNPACK_IMPL2(x, n, __VA_ARGS__)
 #define UNPACK(x, ...) UNPACK_IMPL(x, VA_NARGS(__VA_ARGS__), __VA_ARGS__)
