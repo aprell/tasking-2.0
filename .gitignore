@@ -22,6 +22,7 @@ src/*.log
 src/*.csv
 src/barrier
 src/bpc
+src/fib
 src/fibgen
 src/fib-like
 src/looptest
@@ -32,6 +33,7 @@ src/spc
 src/sum
 src/mm
 src/nbody3
+src/uts
 src/uts-seq
 src/uts-par
 src/lu
