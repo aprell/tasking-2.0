@@ -1,15 +1,16 @@
 #ifndef CHANREF_H
 #define CHANREF_H
 
+#include <assert.h>
 #include "channel.h"
 #ifdef CHAN_SCC
 #include "MPB.h"
 #endif
 
 #ifdef CHAN_SHM
-typedef Channel *chanref_t;    
+typedef Channel *chanref_t;
 #elif defined CHAN_SCC
-typedef struct { 
+typedef struct {
 	int owner, offset;
 } chanref_t;
 #else
