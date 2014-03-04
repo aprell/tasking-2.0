@@ -41,6 +41,7 @@ uts.c uts_seq.c uts_shm.c \
 uts_dfs.c \
 brg_sha1.c \
 cilksort.c getoptions.c \
+nqueens.c \
 $(channel_SRCS) \
 $(tasking_SRCS) \
 $(runtime_SRCS)
@@ -50,7 +51,7 @@ libtasking_SRCS = $(runtime_SRCS) $(channel_SRCS) $(tasking_SRCS)
 #//// ALL PROGRAMS /////////////////////////////////////////////////////////#
 
 PROGS = sum fibgen looptest spc bpc fib-like qsort barrier mm lu nbody3
-PROGS += uts-seq uts-par cilksort
+PROGS += uts-seq uts-par cilksort nqueens
 
 #//// BENCHMARK PROGRAMS ///////////////////////////////////////////////////#
 
@@ -67,6 +68,7 @@ uts_seq_LIBS	= m
 uts_par_SRCS	= uts_shm.c uts.c brg_sha1.c $(libtasking_SRCS)
 uts_par_LIBS	= m
 cilksort_SRCS   = cilksort.c getoptions.c $(libtasking_SRCS)
+nqueens_SRCS    = nqueens.c $(libtasking_SRCS)
 
 #//// TEST PROGRAMS ////////////////////////////////////////////////////////#
 

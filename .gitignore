@@ -27,6 +27,7 @@ src/fib-like
 src/looptest
 src/qsort
 src/cilksort
+src/nqueens
 src/spc
 src/sum
 src/mm
