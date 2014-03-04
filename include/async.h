@@ -2,6 +2,7 @@
 #define ASYNC_H
 
 #include "tasking_internal.h"
+#include "chanref.h"
 #include "timer.h"
 
 #ifndef NTIME
@@ -76,14 +77,23 @@ void fname##_task_func(struct fname##_task_data *__d) \
 	timer_start(&timer_enq_deq_tasks); \
 }
 
+// User code need not be aware of channels
+typedef chan future;
+#define new_future(f) new_##f##_future()
+
 /* Async functions with return values are basically futures
  */
 #define FUTURE_DECL(ret, fname, decls, args...) \
 struct fname##_task_data { \
 	decls; \
-	/*ret *__v;*/ \
-	chan __f; \
+	future __f; \
 }; \
+static inline future new_##fname##_future(void) \
+{ \
+	future f; \
+	chanref_set(&f, channel_alloc(sizeof(ret), 0, SPSC)); \
+	return f; \
+} \
 void fname##_task_func(struct fname##_task_data *__d) \
 { \
 	Task *this = get_current_task(); \
@@ -93,16 +103,15 @@ void fname##_task_func(struct fname##_task_data *__d) \
 	UNPACK(__d, args, __f); \
 	timer_end(&timer_enq_deq_tasks); \
 	timer_start(&timer_run_tasks); \
-	ret tmp = fname(args); \
+	ret __tmp = fname(args); \
 	timer_end(&timer_run_tasks); \
 	timer_start(&timer_enq_deq_tasks); \
-	/**(__v) = tmp;*/ \
-	channel_send(chanref_get(__f), &tmp, sizeof(tmp)); \
+	channel_send(chanref_get(__f), &__tmp, sizeof(__tmp)); \
 }
 
 /* Call f(args) asynchronously
- * 
- * Requires underlying tasking implementation 
+ *
+ * Requires underlying tasking implementation
  *
  * Examples:
  * ASYNC(do_sth, a, b);
@@ -123,6 +132,47 @@ do { \
 	push(__task); \
 	timer_end(&timer_enq_deq_tasks); \
 } while (0)
+
+// Version that returns a future to wait for
+#define __ASYNC(f, args...) \
+({  \
+	Task *__task; \
+	struct f##_task_data *__d; \
+	future __f; \
+	timer_start(&timer_enq_deq_tasks); \
+	\
+	__task = task_alloc(); \
+	__task->parent = get_current_task(); \
+	__task->fn = (void (*)(void *))f##_task_func; \
+	\
+	__d = (struct f##_task_data *)__task->data; \
+	__f = new_future(f); \
+	PACK(__d, args, __f); \
+	push(__task); \
+	timer_end(&timer_enq_deq_tasks); \
+	__f; \
+})
+
+extern void RT_force_future_channel(Channel *, void *, unsigned int);
+
+// Returns the result of evaluating future f
+// p is a pointer that will point to the future's result
+#define AWAIT(f, p) \
+({ \
+	RT_force_future_channel(chanref_get(f), p, sizeof(typeof(*(p)))); \
+	channel_free(chanref_get(f)); \
+	*(p); \
+})
+
+// Returns the result of evaluating future f
+// type is used to declare a temporary variable
+#define __AWAIT(f, type) \
+({ \
+	type __tmp; \
+	RT_force_future_channel(chanref_get(f), &__tmp, sizeof(__tmp)); \
+	channel_free(chanref_get(f)); \
+	__tmp; \
+})
 
 /* Create splittable loop task [s, e)
  */
