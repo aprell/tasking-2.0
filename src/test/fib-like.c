@@ -32,14 +32,14 @@ static int compute(int usec)
 		// Hah! How twisted! (- -')
 		int fib = 0, f2 = 0, f1 = 1, i;
 		for (i = 2; i <= 30; i++) {
-			fib = f1 + f2; 
+			fib = f1 + f2;
 			f2 = f1;
 			f1 = fib;
 		}
 		//(void)RT_check_for_steal_requests();
 	}
 	//printf("Elapsed: %.2lfus\n", elapsed);
-	
+
 	return 1;
 }
 
@@ -63,21 +63,16 @@ FUTURE_DECL(int, fib_like, int n, n);
 // Taskwait based on channel operations
 int fib_like(int n)
 {
-	int x, y;
-    chan c;
+	future x;
+	int y;
 
 	if (n < 2)
 		return compute(TASK_GRANULARITY);
 
-    chanref_set(&c, channel_alloc(sizeof(x), 0, SPSC));
-
-    ASYNC(fib_like, n-1, c);
+    x = __ASYNC(fib_like, n-1);
 	y = fib_like(n-2);
 
-	TASKING_FORCE_FUTURE(chanref_get(c), &x);
-	channel_free(chanref_get(c));
-
-	return x + y + 1;
+	return __AWAIT(x, int) + y + 1;
 }
 
 static void verify_result(int n, int res)
@@ -97,8 +92,8 @@ static void verify_result(int n, int res)
 	if (n < 0 && n > 43) {
 		printf("Cannot verify result: n out of range, %d\n", n);
 		fflush(stdout);
-	} 
-	
+	}
+
 	if (res != ntasks[n]+1) {
 		printf("Fibonacci-like failed: %d != %d\n", res, ntasks[n]+1);
 		fflush(stdout);
@@ -125,7 +120,7 @@ int main(int argc, char *argv[])
 	f = fib_like(FIB_LIKE_N);
 	end = Wtime_msec();
 	verify_result(FIB_LIKE_N, f);
-	
+
 	printf("Elapsed wall time (%dus/task): %.2lf ms\n", TASK_GRANULARITY, end-start);
 
 	// This should be moved inside TASKING_EXIT()

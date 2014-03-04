@@ -78,8 +78,7 @@ FUTURE_DECL(bool, quicksort, int left; int right, left, right);
 bool quicksort(int left, int right)
 {
 	int i, last, n;
-	bool x = false;
-    chan c;
+	future is_sorted;
 
 	n = right - left + 1;
 	if (n <= 1)
@@ -104,16 +103,10 @@ bool quicksort(int left, int right)
 	// Move pivot to its final place
 	swap(A, left, last);
 
-    chanref_set(&c, channel_alloc(sizeof(x), 0, SPSC));
-
-	ASYNC(quicksort, left, last, c);
+	is_sorted = __ASYNC(quicksort, left, last);
 	quicksort(last + 1, right);
 
-	RT_force_future_channel(chanref_get(c), &x, sizeof(x));
-	assert(x == true);
-	channel_free(chanref_get(c));
-
-	return true;
+	return __AWAIT(is_sorted, bool);
 }
 
 static void verify_result(void)
