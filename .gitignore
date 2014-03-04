@@ -26,6 +26,7 @@ src/fibgen
 src/fib-like
 src/looptest
 src/qsort
+src/cilksort
 src/spc
 src/sum
 src/mm
