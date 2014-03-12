@@ -1060,6 +1060,87 @@ RT_force_future_channel_return:
 	return;
 }
 
+// Return when *num_children == 0
+void RT_taskwait(atomic_t *num_children)
+{
+	Task *task;
+#ifdef STEAL_HALF
+	Task *tail;
+#endif
+	Task *this = get_current_task();
+	struct steal_request req;
+	int loot[2];
+
+	if (atomic_read(num_children) == 0)
+		goto RT_taskwait_return;
+
+	while ((task = pop_child()) != NULL) {
+		timer_start(&timer_enq_deq_tasks);
+		run_task(task);
+		deque_list_tl_task_cache(deque, task);
+		timer_end(&timer_enq_deq_tasks);
+		if (atomic_read(num_children) == 0)
+			goto RT_taskwait_return;
+	}
+
+	assert(get_current_task() == this);
+
+	timer_start(&timer_idle);
+	while (atomic_read(num_children) > 0) {
+		timer_end(&timer_idle);
+		timer_start(&timer_send_recv_sreqs);
+		send_steal_request(false);
+		timer_end(&timer_send_recv_sreqs);
+		timer_start(&timer_idle);
+		while (!channel_receive(chan_notify[ID], loot, sizeof(loot))) {
+			assert(requested);
+			timer_end(&timer_idle);
+			// Check if someone requested to steal from us
+			while (RECV_REQ(&req))
+				handle_steal_request(&req);
+			timer_start(&timer_idle);
+			if (atomic_read(num_children) == 0) {
+				timer_end(&timer_idle);
+				goto RT_taskwait_return;
+			}
+		}
+		timer_end(&timer_idle);
+		timer_start(&timer_send_recv_tasks);
+		channel_receive(chan_tasks[ID], (void *)&task, sizeof(task));
+#ifdef STEAL_HALF
+		if (loot[0] > 1) {
+			channel_receive(chan_tasks[ID], (void *)&tail, sizeof(Task *));
+			task = deque_list_tl_pop(deque_list_tl_prepend(deque, task, tail, loot[0]));
+#ifdef VICTIM_CHECK
+			REQ_OPEN();
+#endif
+		}
+#endif
+#ifdef VICTIM_CHECK
+		if (loot[0] == 1 && SPLITTABLE(task, task->start, task->end)) {
+			REQ_OPEN();
+		}
+#endif
+		timer_end(&timer_send_recv_tasks);
+#ifdef LAST_VICTIM_FIRST
+		last_victim = loot[1];
+		assert(last_victim != 1 && last_victim != ID);
+#endif
+		requested = false;
+		//TODO Figure out at which points updates are reasonable
+		//UPDATE();
+		timer_start(&timer_enq_deq_tasks);
+		run_task(task);
+		deque_list_tl_task_cache(deque, task);
+		timer_end(&timer_enq_deq_tasks);
+		timer_start(&timer_idle);
+	}
+	timer_end(&timer_idle);
+
+RT_taskwait_return:
+	return;
+}
+
 void push(Task *task)
 {
 	struct steal_request req;

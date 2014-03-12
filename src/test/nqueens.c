@@ -80,21 +80,21 @@ int nqueens_seq(int n, int j, char *a)
 	return count;
 }
 
-int nqueens(int, int, char *);
+int nqueens_async(int, int, char *);
 
-FUTURE_DECL(int, nqueens, int n; int j; char *a, n, j, a);
+FUTURE_DECL(int, nqueens_async, int n; int j; char *a, n, j, a);
 
-int nqueens(int n, int j, char *a)
+int nqueens_async(int n, int j, char *a)
 {
 	int count = 0, i;
-	future fs[n];
+	future local_counts[n];
 
 	if (n == j) {
 		/* Good solution, count it */
 		return 1;
 	}
 
-	memset(fs, 0, n * sizeof(future));
+	memset(local_counts, 0, n * sizeof(future));
 
 	/* Try each possible position for queen <j> */
 	for (i = 0; i < n; i++) {
@@ -102,14 +102,50 @@ int nqueens(int n, int j, char *a)
 		memcpy(b, a, j * sizeof(char));
 		b[j] = (char)i;
 		if (ok(j + 1, b)) {
-			fs[i] = __ASYNC(nqueens, n, j + 1, b);
+			local_counts[i] = __ASYNC(nqueens_async, n, j + 1, b);
 		}
 	}
 
 	for (i = 0; i < n; i++) {
-		if (fs[i] != NULL) {
-			count += __AWAIT(fs[i], int);
+		if (local_counts[i] != NULL) {
+			count += __AWAIT(local_counts[i], int);
 		}
+	}
+
+	return count;
+}
+
+int nqueens_spawn(int, int, char *);
+
+TASK_DECL(int, nqueens_spawn, int n; int j; char *a, n, j, a);
+
+int nqueens_spawn(int n, int j, char *a)
+{
+	int count = 0, i;
+	int local_counts[n];
+	atomic_t num_children = 0;
+
+	if (n == j) {
+		/* Good solution, count it */
+		return 1;
+	}
+
+	memset(local_counts, 0, n * sizeof(int));
+
+	/* Try each possible position for queen <j> */
+	for (i = 0; i < n; i++) {
+		char *b = alloca((j + 1) * sizeof(char));
+		memcpy(b, a, j * sizeof(char));
+		b[j] = (char)i;
+		if (ok(j + 1, b)) {
+			SPAWN(nqueens_spawn, n, j + 1, b, &local_counts[i]);
+		}
+	}
+
+	SYNC;
+
+	for (i = 0; i < n; i++) {
+		count += local_counts[i];
 	}
 
 	return count;
@@ -167,7 +203,7 @@ int main(int argc, char *argv[])
 	TASKING_INIT(&argc, &argv);
 
 	start = Wtime_msec();
-	count = nqueens(n, 0, alloca(n * sizeof(char)));
+	count = nqueens_spawn(n, 0, alloca(n * sizeof(char)));
 	end = Wtime_msec();
 	verify_queens(n, count);
 

@@ -22,8 +22,7 @@ do { \
 
 #define TASKING_WAIT() \
 do { \
-	fprintf(stderr, "Warning: TASKING_WAIT() not implemented!\n"); \
-	abort(); \
+	RT_taskwait(&num_children); \
 } while (0)
 
 // r is a pointer to the result value

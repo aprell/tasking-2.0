@@ -57,7 +57,7 @@ static void PARTITION_SET(void) \
 } \
 
 // Create a partition of n workers with identifier id
-// For example: 
+// For example:
 // PARTITION_CREATE(abc, 4) = { 2, 4, 6, 8 };
 //
 // At runtime, we can assign the partition to a manager:
@@ -117,6 +117,7 @@ int RT_exit(void);
 int RT_schedule(void);
 int RT_barrier(void);
 void RT_force_future_channel(Channel *chan, void *data, unsigned int size);
+void RT_taskwait(atomic_t *num_children);
 
 // These functions implement the load balancing between workers
 void push(Task *task);

@@ -159,6 +159,28 @@ void fname##_task_func(struct fname##_task_data *__d) \
 	channel_send(chanref_get(__f), &__tmp, sizeof(__tmp)); \
 }
 
+// Cilk-style fork/join
+#define TASK_DECL(ret, fname, decls, args...) \
+struct fname##_task_data { \
+	decls; \
+	ret *__r; \
+	atomic_t *num_children; \
+}; \
+void fname##_task_func(struct fname##_task_data *__d) \
+{ \
+	Task *this = get_current_task(); \
+	assert(!is_root_task(this)); \
+	assert((struct fname##_task_data *)this->data == __d); \
+	\
+	UNPACK(__d, args, __r, num_children); \
+	timer_end(&timer_enq_deq_tasks); \
+	timer_start(&timer_run_tasks); \
+	*__r = fname(args); \
+	timer_end(&timer_run_tasks); \
+	timer_start(&timer_enq_deq_tasks); \
+	atomic_dec(num_children); \
+}
+
 /* Call f(args) asynchronously
  *
  * Requires underlying tasking implementation
@@ -203,6 +225,24 @@ do { \
 	__f; \
 })
 
+// Cilk-style spawn
+#define SPAWN(f, args...) \
+do { \
+	Task *__task; \
+	struct f##_task_data *__d; \
+	timer_start(&timer_enq_deq_tasks); \
+	\
+	__task = task_alloc(); \
+	__task->parent = get_current_task(); \
+	__task->fn = (void (*)(void *))f##_task_func; \
+	\
+	__d = (struct f##_task_data *)__task->data; \
+	atomic_inc(&num_children); \
+	PACK(__d, args, &num_children); \
+	push(__task); \
+	timer_end(&timer_enq_deq_tasks); \
+} while (0)
+
 extern void RT_force_future_channel(Channel *, void *, unsigned int);
 
 // Returns the result of evaluating future f
@@ -223,6 +263,11 @@ extern void RT_force_future_channel(Channel *, void *, unsigned int);
 	channel_free(chanref_get(f)); \
 	__tmp; \
 })
+
+extern void RT_taskwait(atomic_t *num_children);
+
+// Cilk-style sync
+#define SYNC RT_taskwait(&num_children)
 
 /* Create splittable loop task [s, e)
  */
