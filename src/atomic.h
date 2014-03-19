@@ -66,7 +66,7 @@ static inline int atomic_sub(int i, atomic_t *v)
  * @param i integer value to subtract
  * @param v pointer of type atomic_t
  *
- * Atomically subtracts @i from @v and returns true if the result is 0 
+ * Atomically subtracts @i from @v and returns true if the result is 0
  * and false otherwise.
  */
 
@@ -136,7 +136,7 @@ static inline int atomic_add_and_test(int i, atomic_t *v)
  * @param v pointer of type atomic_t
  * @param oldval old integer value
  * @param newval new integer value
- * @return true if comparison was successful and @newval was written, 
+ * @return true if comparison was successful and @newval was written,
  * false otherwise
  *
  * Atomically tests if @v == @oldval, and if true sets @v to @newval.

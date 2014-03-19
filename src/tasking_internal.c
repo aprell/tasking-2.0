@@ -194,3 +194,8 @@ int tasking_tasks_exec(void)
 {
 	return atomic_read(num_tasks_exec);
 }
+
+bool tasking_done(void)
+{
+	return atomic_read(tasking_finished) == 1;
+}

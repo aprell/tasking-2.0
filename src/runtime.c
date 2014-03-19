@@ -384,7 +384,7 @@ do { \
 	/* ==> send to full channel will block the sender */\
 	while (!channel_send(chan, req, sizeof(*(req)))) { \
 		if (++__nfail % 10 == 0) LOG("*** Worker %d: blocked on channel send\n", ID); \
-		if (*tasking_finished) break; \
+		if (tasking_done()) break; \
 	} \
 } while (0)
 
@@ -415,7 +415,7 @@ static inline bool RECV_REQ(struct steal_request *req)
 	/* Problematic if the target worker has already left scheduling */\
 	/* ==> send to full channel will block the sender */\
 	while (!channel_send(chan_quiescence[next_manager], tok, sizeof(*(tok)))) { \
-		if (*tasking_finished) break; \
+		if (tasking_done()) break; \
 	} \
 }
 
@@ -423,7 +423,7 @@ static inline bool RECV_REQ(struct steal_request *req)
 { \
 	/* Problematic if the sender has already terminated */\
 	while (!channel_receive(chan_quiescence[ID], tok, sizeof(*(tok)))) { \
-		if (*tasking_finished) break; \
+		if (tasking_done()) break; \
 	} \
 }
 
@@ -444,7 +444,7 @@ static bool global_quiescence(void)
 		if (tok.sender == ID) break;
 		tok.val++;
 		SEND_QSC_MSG(&tok);
-		if (*tasking_finished) break;
+		if (tasking_done()) break;
 	}
 
 	return tok.val == num_partitions;
@@ -617,7 +617,7 @@ static int loadbalance(void)
 				}
 				break;
 		}}
-		if (*tasking_finished)
+		if (tasking_done())
 			break;
 		if (num_workers_q == my_partition->num_workers_rt-1 && !quiescent) {
 			// Transition to quiescent
@@ -630,7 +630,7 @@ static int loadbalance(void)
 				tok.val++;
 			SEND_QSC_MSG(&tok);
 		}
-		if (*tasking_finished)
+		if (tasking_done())
 			break;
 	}
 
@@ -844,7 +844,7 @@ void *schedule(UNUSED(void *args))
 			assert(deque_list_tl_empty(deque));
 			assert(requested);
 			decline_all_steal_requests();
-			if (*tasking_finished) {
+			if (tasking_done()) {
 				timer_end(&timer_idle);
 				goto schedule_exit;
 			}

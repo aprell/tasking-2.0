@@ -86,5 +86,6 @@ int tasking_internal_exit(void);
 int tasking_internal_barrier(void);
 int tasking_internal_statistics(void);
 int tasking_tasks_exec(void);
+bool tasking_done(void);
 
 #endif // TASKING_INTERNAL_H
