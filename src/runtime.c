@@ -872,9 +872,7 @@ static void handle_steal_request(struct steal_request *req)
 		timer_end(&timer_send_recv_tasks);
 		assert(deque_list_tl_empty(deque));
 		timer_start(&timer_send_recv_sreqs);
-#ifdef VICTIM_CHECK
 		REQ_CLOSE();
-#endif
 		decline_steal_request(req);
 		timer_end(&timer_send_recv_sreqs);
 	}
@@ -902,6 +900,15 @@ int RT_check_for_steal_requests(void)
 
 	return n;
 }
+
+// t MAY BE NULL, so we can't implement this with an inline function.
+// Consider this use:
+// if (SPLITTABLE(task, task->start, task->end))
+//     ...
+// If task is NULL -> segfault
+// Macro expansion plus short circuit evaluation prevent this from happening.
+#define SPLITTABLE(t, s, e) \
+	((bool)((t) != NULL && (t)->is_loop && abs((e)-(s)) > 1))
 
 // Executed by worker threads
 void *schedule(UNUSED(void *args))
@@ -944,9 +951,12 @@ void *schedule(UNUSED(void *args))
 		if (loot[0] > 1) {
 			channel_receive(chan_tasks[ID], (void *)&tail, sizeof(Task *));
 			task = deque_list_tl_pop(deque_list_tl_prepend(deque, task, tail, loot[0]));
-#ifdef VICTIM_CHECK
 			REQ_OPEN();
+		}
 #endif
+#ifdef VICTIM_CHECK
+		if (loot[0] == 1 && SPLITTABLE(task, task->start, task->end)) {
+			REQ_OPEN();
 		}
 #endif
 		timer_end(&timer_send_recv_tasks);
@@ -1029,9 +1039,12 @@ empty_local_queue:
 	if (loot[0] > 1) {
 		channel_receive(chan_tasks[ID], (void *)&tail, sizeof(Task *));
 		task = deque_list_tl_pop(deque_list_tl_prepend(deque, task, tail, loot[0]));
-#ifdef VICTIM_CHECK
 		REQ_OPEN();
+	}
 #endif
+#ifdef VICTIM_CHECK
+	if (loot[0] == 1 && SPLITTABLE(task, task->start, task->end)) {
+		REQ_OPEN();
 	}
 #endif
 	timer_end(&timer_send_recv_tasks);
@@ -1123,9 +1136,12 @@ void RT_force_future_channel(Channel *chan, void *data, unsigned int size)
 		if (loot[0] > 1) {
 			channel_receive(chan_tasks[ID], (void *)&tail, sizeof(Task *));
 			task = deque_list_tl_pop(deque_list_tl_prepend(deque, task, tail, loot[0]));
-#ifdef VICTIM_CHECK
 			REQ_OPEN();
+		}
 #endif
+#ifdef VICTIM_CHECK
+		if (loot[0] == 1 && SPLITTABLE(task, task->start, task->end)) {
+			REQ_OPEN();
 		}
 #endif
 		timer_end(&timer_send_recv_tasks);
@@ -1199,9 +1215,7 @@ void RT_taskwait(atomic_t *num_children)
 		if (loot[0] > 1) {
 			channel_receive(chan_tasks[ID], (void *)&tail, sizeof(Task *));
 			task = deque_list_tl_pop(deque_list_tl_prepend(deque, task, tail, loot[0]));
-#ifdef VICTIM_CHECK
 			REQ_OPEN();
-#endif
 		}
 #endif
 #ifdef VICTIM_CHECK
@@ -1235,9 +1249,7 @@ void push(Task *task)
 
 	deque_list_tl_push(deque, task);
 
-#ifdef VICTIM_CHECK
 	REQ_OPEN();
-#endif
 
 	timer_end(&timer_enq_deq_tasks);
 
@@ -1249,15 +1261,6 @@ void push(Task *task)
 	timer_start(&timer_enq_deq_tasks);
 }
 
-// t MAY BE NULL, so we can't implement this with an inline function.
-// Consider this use:
-// if (SPLITTABLE(task, task->start, task->end))
-//     ...
-// If task is NULL -> segfault
-// Macro expansion plus short circuit evaluation prevent this from happening.
-#define SPLITTABLE(t, s, e) \
-	((bool)((t) != NULL && (t)->is_loop && abs((e)-(s)) > 1))
-
 Task *pop(void)
 {
 	struct steal_request req;
@@ -1265,6 +1268,10 @@ Task *pop(void)
 	timer_start(&timer_enq_deq_tasks);
 
 	Task *task = deque_list_tl_pop(deque);
+
+#ifdef VICTIM_CHECK
+	if (!task) REQ_CLOSE();
+#endif
 
 	timer_end(&timer_enq_deq_tasks);
 
