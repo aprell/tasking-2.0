@@ -130,7 +130,7 @@ static void init_victims(int ID)
 
 	// my_victims contains all possible victims in my_partition
 	for (i = 0, j = 0; i < my_partition->num_workers_rt; i++) {
-		if (workers[ID][i].rank != ID && workers[ID][i].rank != my_partition->manager) {
+		if (workers[ID][i].rank != ID) {
 			my_victims[j] = workers[ID][i].rank;
 			//LOG("Worker %2d: victim[%d] = %d\n", ID, j, my_victims[j]);
 			j++;
@@ -148,6 +148,7 @@ static void init_victims(int ID)
 
 static PRIVATE unsigned int seed;
 
+#ifdef STEAL_RANDOM
 static void swap(int *a, int *b)
 {
 	int tmp = *a;
@@ -164,32 +165,79 @@ static void shuffle(int *workers, int len)
 		swap(&workers[rand], &workers[i]);
 	}
 }
-
 static inline void shuffle_victims()
 {
-	shuffle(my_victims, my_partition->num_workers_rt-2);
-	my_victims[my_partition->num_workers_rt-2] = ID;
+	shuffle(my_victims, my_partition->num_workers_rt-1);
+	my_victims[my_partition->num_workers_rt-1] = ID;
 }
+#endif // STEAL_RANDOM
 
 static inline void copy_victims()
 {
 	// Update shared copy of my_victims
-	memcpy(victims[ID], my_victims, (my_partition->num_workers_rt-1) * sizeof(int));
+	memcpy(victims[ID], my_victims, my_partition->num_workers_rt * sizeof(int));
 }
 
-// Initializes context needed for random work-stealing
-static int ws_init_random(void)
+#ifdef STEAL_RANDOM_RR
+// Arrange the victims in my_victims so that visiting them in order
+// corresponds to round robin / next neighbor
+static inline void order_victims()
+{
+	int vs[my_partition->num_workers_rt];
+	int i = 0, j = my_partition->num_workers_rt-1;
+
+	while (my_victims[i] < ID) {
+		i++; j--;
+	}
+
+	assert(my_victims[i] >= ID);
+	assert(j >= 0);
+
+	if (my_victims[i] == 0 || my_victims[i] == ID) {
+		// my_victims is already correctly ordered
+		if (my_victims[i] == ID) {
+			assert(i == my_partition->num_workers_rt-1);
+			assert(j == 0);
+		}
+		return;
+	}
+
+	assert(my_victims[i] > ID);
+	assert(j > 0);
+
+	// Save the first i victims that must be moved to the end of my_victims
+	memcpy(vs, my_victims, i * sizeof(int));
+	// Move the remaining j victims to the front of my_victims
+	memmove(my_victims, my_victims + i, j * sizeof(int));
+	// Copy the other victims back into place
+	memcpy(my_victims + j, vs, i * sizeof(int));
+
+	assert(my_victims[my_partition->num_workers_rt-1] == ID);
+}
+#endif // STEAL_RANDOM_RR
+
+// Initializes context needed for work-stealing
+static int ws_init(void)
 {
 	seed = ID;
 	init_victims(ID);
+#ifdef STEAL_RANDOM
 	shuffle_victims();
+#else // STEAL_RANDOM_RR
+	order_victims();
+#endif
+	// Not strictly needed in case of STEAL_RANDOM_RR: no shared state
 	copy_victims();
 
 	return 0;
 }
 
 #ifndef NTIME
+#ifdef __MIC__
+#define CPUFREQ 1.053 // in GHz
+#else
 #define CPUFREQ 2.1 // in GHZ
+#endif
 // To measure the cost of different parts of the runtime
 PRIVATE mytimer_t timer_run_tasks;
 PRIVATE mytimer_t timer_enq_deq_tasks;
@@ -240,7 +288,7 @@ int RT_init(void)
 	victims[ID] = (int *)malloc(MAXNP * sizeof(int));
 	my_victims = (int *)malloc(MAXNP * sizeof(int));
 
-	ws_init_random();
+	ws_init();
 
 	for (i = 0; i < my_partition->num_workers_rt; i++) {
 		if (ID == my_partition->workers[i]) {
@@ -302,43 +350,28 @@ Task *task_alloc(void)
 	return deque_list_tl_task_new(deque);
 }
 
-#ifdef STEAL_ROUNDROBIN
-// Chooses the next victim at random
-// Can be combined with STEAL_ROUNDROBIN for example
-// FIXME: Problem if worker is alone in partition!
-static inline int random_victim(int thief)
-{
-	int victim = -1, i;
-
-	for (i = 0; i < my_partition->num_workers_rt-1; i++) {
-		do {
-			int rand = rand_r(&seed) % (my_partition->num_workers_rt-1);
-			victim = my_victims[rand];
-		} while (victim == thief || victim == ID || victim == my_partition->manager);
-	}
-
-	//assert(is_in_my_partition(victim));
-
-	return victim;
-}
-#endif // STEAL_ROUNDROBIN
-
-// Selects the next victim for thief depending on a given strategy
-// STEAL_RANDOM: random victim selection (+ use of last_victim)
-// STEAL_ROUNDROBIN: round robin victim selection
 #ifdef VICTIM_CHECK
 
 #define LIKELY_HAS_TASKS(ID) (!channel_closed(chan_requests[ID]))
 #define REQ_CLOSE()            channel_close(chan_requests[ID])
 #define REQ_OPEN()             channel_open(chan_requests[ID])
 
-static inline int select_victim(struct steal_request *req)
+#else
+
+#define LIKELY_HAS_TASKS(ID)   true      // Assume yes, victim has tasks
+#define REQ_CLOSE()            ((void)0) // NOOP
+#define REQ_OPEN()             ((void)0) // NOOP
+
+#endif
+
+#ifdef STEAL_RANDOM
+static inline int next_victim(struct steal_request *req)
 {
 	int victim, i;
 
-	for (i = req->try; i < my_partition->num_workers_rt-2; i++) {
+	for (i = req->try; i < my_partition->num_workers_rt-1; i++) {
 		victim = victims[req->ID][i];
-		if (LIKELY_HAS_TASKS(victim)) {
+		if (victim != my_partition->manager && LIKELY_HAS_TASKS(victim)) {
 			//assert(is_in_my_partition(victim));
 			//LOG("Worker %d: Found victim after %i tries\n", ID, i);
 			return victim;
@@ -351,25 +384,63 @@ static inline int select_victim(struct steal_request *req)
 
 	return victim;
 }
-#else
-static inline int select_victim(struct steal_request *req)
-{
-	int victim;
+#endif // STEAL_RANDOM
 
-#ifdef STEAL_ROUNDROBIN
-	if (next_worker == my_partition->manager)
-		victim = next_worker + 1;
-	else
-		victim = next_worker;
-#else // STEAL_RANDOM
-	victim = victims[req->ID][req->try];
-#endif
+#ifdef STEAL_RANDOM_RR
+// Chooses the first victim at random
+// FIXME: Problem if worker is alone in partition!
+static inline int random_victim(struct steal_request *req)
+{
+	// Assumption: Beginning of a new round of steal attempts
+	assert(req->try == 0);
+
+	int victim = -1;
+
+	do {
+		int rand = rand_r(&seed) % (my_partition->num_workers_rt-1);
+		victim = my_victims[rand];
+		assert(victim != ID);
+	} while (victim == req->ID || victim == my_partition->manager);
 
 	//assert(is_in_my_partition(victim));
 
 	return victim;
 }
-#endif
+
+static inline int next_victim(struct steal_request *req)
+{
+	int victim, i;
+
+	assert(req->try > 0 && req->try <= my_partition->num_workers_rt-1);
+
+	if (req->try == my_partition->num_workers_rt-1) {
+		return req->ID;
+	}
+
+	// Check all potential victims (excluding ID)
+	// Skip req->ID and my_partition->manager. Skipping my_partition->manager
+	// requires incrementing req->try, as if we attempted a steal but failed.
+	for (i = 0; i < my_partition->num_workers_rt-1,
+			    req->try < my_partition->num_workers_rt-1; i++) {
+		victim = my_victims[i];
+		if (victim == my_partition->manager) {
+			req->try++;
+		} else if (victim != req->ID) {
+			if (LIKELY_HAS_TASKS(victim)) {
+				return victim;
+			} else {
+				req->try++;
+			}
+		} else {
+			assert(victim == req->ID);
+		}
+	}
+
+	// Steal request has passed each worker exactly once; send it back
+	assert(req->try == my_partition->num_workers_rt-1);
+	return req->ID;
+}
+#endif // STEAL_RANDOM_RR
 
 static inline void UPDATE(void);
 static inline void send_steal_request(bool idle);
@@ -523,15 +594,19 @@ static int loadbalance(void)
 						}
 					}
 					// Pass steal request on to random victim
-#ifdef STEAL_ROUNDROBIN
-					SEND_REQ_WORKER(random_victim(req.ID), &req);
+#ifdef STEAL_RANDOM_RR
+					SEND_REQ_WORKER(random_victim(&req), &req);
 #else // STEAL_RANDOM
-					SEND_REQ_WORKER(victims[req.ID][0], &req);
+					if (victims[req.ID][0] != ID) {
+						SEND_REQ_WORKER(victims[req.ID][0], &req);
+					} else {
+						SEND_REQ_WORKER(victims[req.ID][1], &req);
+					}
 #endif
 					requests_declined++;
 				} else {
 					// Steal request made full circle within partition
-					assert(req.try == my_partition->num_workers_rt-1);
+					assert(req.try == my_partition->num_workers_rt);
 					req.try = 0;
 					// Have we seen this steal request before?
 					if (req.partition == my_partition->number) {
@@ -544,10 +619,14 @@ static int loadbalance(void)
 								num_workers_q++;
 							}
 							// Pass it back to partition
-#ifdef STEAL_ROUNDROBIN
-							SEND_REQ_WORKER(random_victim(req.ID), &req);
+#ifdef STEAL_RANDOM_RR
+							SEND_REQ_WORKER(random_victim(&req), &req);
 #else // STEAL_RANDOM
-							SEND_REQ_WORKER(victims[req.ID][0], &req);
+							if (victims[req.ID][0] != ID) {
+								SEND_REQ_WORKER(victims[req.ID][0], &req);
+							} else {
+								SEND_REQ_WORKER(victims[req.ID][1], &req);
+							}
 #endif
 							requests_declined++;
 						} else { // No, this is a new steal request from our partition
@@ -576,7 +655,7 @@ static int loadbalance(void)
 			/////////////////////////////////////////////////////////////////
 			case true:
 				if (req.partition == my_partition->number) {
-					assert(req.try == my_partition->num_workers_rt-1);
+					assert(req.try == my_partition->num_workers_rt);
 					assert(req.pass == num_partitions);
 					assert(req.idle);
 					assert(req.quiescent);
@@ -597,15 +676,19 @@ static int loadbalance(void)
 							while (channel_peek(chan_barrier)) ;
 							after_barrier = true;
 						}
-#ifdef STEAL_ROUNDROBIN
-						SEND_REQ_WORKER(random_victim(req.ID), &req);
+#ifdef STEAL_RANDOM_RR
+						SEND_REQ_WORKER(random_victim(&req), &req);
 #else // STEAL_RANDOM
-						SEND_REQ_WORKER(victims[req.ID][0], &req);
+						if (victims[req.ID][0] != ID) {
+							SEND_REQ_WORKER(victims[req.ID][0], &req);
+						} else {
+							SEND_REQ_WORKER(victims[req.ID][1], &req);
+						}
 #endif
 						requests_declined++;
 					}
 				} else {
-					assert(req.try == 0 || req.try == my_partition->num_workers_rt-1);
+					assert(req.try == 0 || req.try == my_partition->num_workers_rt);
 					assert(!is_in_my_partition(req.ID));
 					assert(!req.quiescent);
 					req.try = 0;
@@ -673,7 +756,7 @@ static inline void send_steal_request(bool idle)
 		if (last_victim != -1) {
 			// Find last_victim in field my_victims and swap it to the front
 			int i;
-			for (i = 0; i < my_partition->num_workers_rt-2; i++) {
+			for (i = 0; i < my_partition->num_workers_rt-1; i++) {
 				if (my_victims[i] == last_victim) {
 					swap(&my_victims[i], &my_victims[0]);
 					break;
@@ -682,9 +765,9 @@ static inline void send_steal_request(bool idle)
 		}
 #endif
 		copy_victims();
-		SEND_REQ_WORKER(select_victim(&steal_req), &steal_req);
-#else // STEAL_ROUNDROBIN
-		SEND_REQ_WORKER(random_victim(ID), &steal_req);
+		SEND_REQ_WORKER(next_victim(&steal_req), &steal_req);
+#else // STEAL_RANDOM_RR
+		SEND_REQ_WORKER(random_victim(&steal_req), &steal_req);
 #endif
 		requested = true;
 		requests_sent++;
@@ -697,17 +780,21 @@ static inline void decline_steal_request(struct steal_request *req)
 {
 	requests_declined++;
 	req->try++;
-	if (req->try < my_partition->num_workers_rt-1) {
+	if (req->try < my_partition->num_workers_rt) {
 		assert(ID != req->ID);
-		SEND_REQ_WORKER(select_victim(req), req);
+		SEND_REQ_WORKER(next_victim(req), req);
 	} else {
 		assert(ID == req->ID);
 		if (ID != MASTER_ID && req->quiescent) {
 			// Don't bother manager; we are quiescent anyway
 			req->try = 0;
-			SEND_REQ_WORKER(select_victim(req), req);
+#ifdef STEAL_RANDOM
+			SEND_REQ_WORKER(next_victim(req), req);
+#else // STEAL_RANDOM_RR
+			SEND_REQ_WORKER(random_victim(req), req);
+#endif
 		} else {
-		  SEND_REQ_MANAGER(req);
+			SEND_REQ_MANAGER(req);
 		}
 	}
 }
@@ -837,6 +924,7 @@ void *schedule(UNUSED(void *args))
 			deque_list_tl_task_cache(deque, task);
 			timer_end(&timer_enq_deq_tasks);
 		}
+
 		// (2) Work-stealing request
 		assert(requested);
 		timer_start(&timer_idle);
