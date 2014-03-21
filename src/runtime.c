@@ -388,13 +388,19 @@ static inline int next_victim(struct steal_request *req)
 
 #ifdef STEAL_RANDOM_RR
 // Chooses the first victim at random
-// FIXME: Problem if worker is alone in partition!
 static inline int random_victim(struct steal_request *req)
 {
 	// Assumption: Beginning of a new round of steal attempts
 	assert(req->try == 0);
 
 	int victim = -1;
+
+	// No other workers in this partition besides the manager?
+	if (my_partition->num_workers_rt-1 == 1) {
+		// Skip manager
+		req->try++;
+		return req->ID;
+	}
 
 	do {
 		int rand = rand_r(&seed) % (my_partition->num_workers_rt-1);
