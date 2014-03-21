@@ -781,7 +781,9 @@ static inline void decline_steal_request(struct steal_request *req)
 	requests_declined++;
 	req->try++;
 	if (req->try < my_partition->num_workers_rt) {
-		assert(ID != req->ID);
+		if (my_partition->num_workers_rt > 2) {
+			assert(ID != req->ID);
+		}
 		SEND_REQ_WORKER(next_victim(req), req);
 	} else {
 		assert(ID == req->ID);
