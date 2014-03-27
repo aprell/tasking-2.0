@@ -60,7 +60,12 @@ struct steal_request {
 	int pID;		// ID of requesting worker within partition
 	bool idle;		// ID has nothing left to work on?
 	bool quiescent;	// manager assumes ID is in a quiescent state?
+#ifdef STEAL_ADAPTIVE
+	bool stealhalf; // true ? attempt steal-half : attempt steal-one
+	char __[9];     // pad to cache line
+#else
 	char __[10];   	// pad to cache line
+#endif
 };
 
 static inline void print_steal_req(struct steal_request *req)
@@ -252,9 +257,10 @@ PRIVATE unsigned int requests_declined, tasks_sent;
 
 int RT_init(void)
 {
-	// A small sanity check
+	// Small sanity checks
 	// At this point, we have not yet decided who will be manager(s)
 	assert(is_manager == false);
+	assert(sizeof(struct steal_request) == 32);
 
 	int i;
 
@@ -728,6 +734,15 @@ static int loadbalance(void)
 	return 0;
 }
 
+#ifdef STEAL_ADAPTIVE
+// Switch from steal-one to steal-half after executing STEAL_HALF_THRESHOLD
+// flat tasks (tasks that don't create child tasks) in series.
+// Switch back to steal-one as soon as we create the next child task.
+#define STEAL_HALF_THRESHOLD 10
+static PRIVATE unsigned int flat_tasks_in_series;
+static PRIVATE bool stealhalf;
+#endif
+
 // Send steal request when number of local tasks <= REQ_THRESHOLD
 // Steal requests are always sent before actually running out of tasks.
 // REQ_THRESHOLD == 0 means that we send a steal request just _before_ we
@@ -742,6 +757,12 @@ static inline void UPDATE(void)
 	timer_start(&timer_send_recv_sreqs);
 
 	if (deque_list_tl_num_tasks(deque) <= REQ_THRESHOLD) {
+#ifdef STEAL_ADAPTIVE
+		if (!stealhalf && flat_tasks_in_series >= STEAL_HALF_THRESHOLD) {
+			//LOG("Worker %d switches to steal-half\n", ID);
+			stealhalf = true;
+		}
+#endif
 		send_steal_request(false);
 	}
 
@@ -756,6 +777,9 @@ static inline void send_steal_request(bool idle)
 	if (!requested) {
 		steal_req.idle = idle;
 		steal_req.try = 0;
+#ifdef STEAL_ADAPTIVE
+		steal_req.stealhalf = stealhalf;
+#endif
 #ifdef STEAL_RANDOM
 		shuffle_victims();
 #ifdef LAST_VICTIM_FIRST
@@ -827,8 +851,8 @@ static inline void decline_all_steal_requests(void)
 
 static void handle_steal_request(struct steal_request *req)
 {
-	Task *task;
-	int loot[2] = { 0, ID };
+	Task *task, *tail;
+	int loot[2] = { 1, ID };
 
 	if (req->ID == ID) {
 		// Got own steal request
@@ -847,10 +871,15 @@ static void handle_steal_request(struct steal_request *req)
 	}
 	assert(req->ID != ID);
 	timer_start(&timer_send_recv_tasks);
-#ifdef STEAL_HALF
-	Task *tail;
+#ifdef STEAL_ADAPTIVE
+	if (req->stealhalf) {
+		task = deque_list_tl_steal_half(deque, &tail, &loot[0]);
+	} else {
+		task = deque_list_tl_steal(deque);
+	}
+#elif defined STEAL_HALF
 	task = deque_list_tl_steal_half(deque, &tail, &loot[0]);
-#else
+#else // Default is steal-one
 	task = deque_list_tl_steal(deque);
 #endif
 	if (task) {
@@ -862,14 +891,10 @@ static void handle_steal_request(struct steal_request *req)
 			SEND_REQ_MANAGER(req);
 		}
 		channel_send(chan_tasks[req->ID], (void *)&task, sizeof(Task *));
-#ifdef STEAL_HALF
-		if (loot[0] > 1)
+		if (loot[0] > 1) {
 			channel_send(chan_tasks[req->ID], (void *)&tail, sizeof(Task *));
+		}
 		//LOG("Worker %2d: sending %d tasks to worker %d\n", ID, loot[0], req->ID);
-#else
-		loot[0] = 1;
-		//LOG("Worker %2d: sending task to worker %d\n", ID, req->ID);
-#endif
 		channel_send(chan_notify[req->ID], loot, sizeof(loot));
 		requests_handled++;
 		tasks_sent += loot[0];
@@ -921,10 +946,7 @@ int RT_check_for_steal_requests(void)
 // Executed by worker threads
 void *schedule(UNUSED(void *args))
 {
-	Task *task;
-#ifdef STEAL_HALF
-	Task *tail;
-#endif
+	Task *task, *tail;
 	int loot[2];
 
 	//timer_start(&timer_idle);
@@ -935,6 +957,9 @@ void *schedule(UNUSED(void *args))
 		//timer_end(&timer_idle);
 		while ((task = pop()) != NULL) {
 			timer_start(&timer_enq_deq_tasks);
+#ifdef STEAL_ADAPTIVE
+			flat_tasks_in_series++;
+#endif
 			run_task(task);
 			deque_list_tl_task_cache(deque, task);
 			timer_end(&timer_enq_deq_tasks);
@@ -955,13 +980,11 @@ void *schedule(UNUSED(void *args))
 		timer_end(&timer_idle);
 		timer_start(&timer_send_recv_tasks);
 		channel_receive(chan_tasks[ID], (void *)&task, sizeof(Task *));
-#ifdef STEAL_HALF
 		if (loot[0] > 1) {
 			channel_receive(chan_tasks[ID], (void *)&tail, sizeof(Task *));
 			task = deque_list_tl_pop(deque_list_tl_prepend(deque, task, tail, loot[0]));
 			REQ_OPEN();
 		}
-#endif
 #ifdef VICTIM_CHECK
 		if (loot[0] == 1 && SPLITTABLE(task, task->start, task->end)) {
 			REQ_OPEN();
@@ -976,6 +999,9 @@ void *schedule(UNUSED(void *args))
 		//TODO Figure out at which points updates are reasonable
 		//UPDATE();
 		timer_start(&timer_enq_deq_tasks);
+#ifdef STEAL_ADAPTIVE
+		flat_tasks_in_series++;
+#endif
 		run_task(task);
 		deque_list_tl_task_cache(deque, task);
 		timer_end(&timer_enq_deq_tasks);
@@ -1010,16 +1036,16 @@ int RT_barrier(void)
 
 	assert(is_root_task(get_current_task()));
 
-	Task *task;
-#ifdef STEAL_HALF
-	Task *tail;
-#endif
+	Task *task, *tail;
 	int loot[2];
 	bool quiescent;
 
 empty_local_queue:
 	while ((task = pop()) != NULL) {
 		timer_start(&timer_enq_deq_tasks);
+#ifdef STEAL_ADAPTIVE
+		flat_tasks_in_series++;
+#endif
 		run_task(task);
 		deque_list_tl_task_cache(deque, task);
 		timer_end(&timer_enq_deq_tasks);
@@ -1043,13 +1069,11 @@ empty_local_queue:
 	timer_end(&timer_idle);
 	timer_start(&timer_send_recv_tasks);
 	channel_receive(chan_tasks[ID], (void *)&task, sizeof(Task *));
-#ifdef STEAL_HALF
 	if (loot[0] > 1) {
 		channel_receive(chan_tasks[ID], (void *)&tail, sizeof(Task *));
 		task = deque_list_tl_pop(deque_list_tl_prepend(deque, task, tail, loot[0]));
 		REQ_OPEN();
 	}
-#endif
 #ifdef VICTIM_CHECK
 	if (loot[0] == 1 && SPLITTABLE(task, task->start, task->end)) {
 		REQ_OPEN();
@@ -1064,6 +1088,9 @@ empty_local_queue:
 	//TODO Figure out at which points updates are reasonable
 	//UPDATE();
 	timer_start(&timer_enq_deq_tasks);
+#ifdef STEAL_ADAPTIVE
+	flat_tasks_in_series++;
+#endif
 	run_task(task);
 	deque_list_tl_task_cache(deque, task);
 	timer_end(&timer_enq_deq_tasks);
@@ -1094,10 +1121,7 @@ RT_barrier_exit:
 
 void RT_force_future_channel(Channel *chan, void *data, unsigned int size)
 {
-	Task *task;
-#ifdef STEAL_HALF
-	Task *tail;
-#endif
+	Task *task, *tail;
 	Task *this = get_current_task();
 	struct steal_request req;
 	int loot[2];
@@ -1109,6 +1133,9 @@ void RT_force_future_channel(Channel *chan, void *data, unsigned int size)
 
 	while ((task = pop_child()) != NULL) {
 		timer_start(&timer_enq_deq_tasks);
+#ifdef STEAL_ADAPTIVE
+		flat_tasks_in_series++;
+#endif
 		run_task(task);
 		deque_list_tl_task_cache(deque, task);
 		timer_end(&timer_enq_deq_tasks);
@@ -1140,13 +1167,11 @@ void RT_force_future_channel(Channel *chan, void *data, unsigned int size)
 		timer_end(&timer_idle);
 		timer_start(&timer_send_recv_tasks);
 		channel_receive(chan_tasks[ID], (void *)&task, sizeof(task));
-#ifdef STEAL_HALF
 		if (loot[0] > 1) {
 			channel_receive(chan_tasks[ID], (void *)&tail, sizeof(Task *));
 			task = deque_list_tl_pop(deque_list_tl_prepend(deque, task, tail, loot[0]));
 			REQ_OPEN();
 		}
-#endif
 #ifdef VICTIM_CHECK
 		if (loot[0] == 1 && SPLITTABLE(task, task->start, task->end)) {
 			REQ_OPEN();
@@ -1161,6 +1186,9 @@ void RT_force_future_channel(Channel *chan, void *data, unsigned int size)
 		//TODO Figure out at which points updates are reasonable
 		//UPDATE();
 		timer_start(&timer_enq_deq_tasks);
+#ifdef STEAL_ADAPTIVE
+		flat_tasks_in_series++;
+#endif
 		run_task(task);
 		deque_list_tl_task_cache(deque, task);
 		timer_end(&timer_enq_deq_tasks);
@@ -1175,10 +1203,7 @@ RT_force_future_channel_return:
 // Return when *num_children == 0
 void RT_taskwait(atomic_t *num_children)
 {
-	Task *task;
-#ifdef STEAL_HALF
-	Task *tail;
-#endif
+	Task *task, *tail;
 	Task *this = get_current_task();
 	struct steal_request req;
 	int loot[2];
@@ -1188,6 +1213,9 @@ void RT_taskwait(atomic_t *num_children)
 
 	while ((task = pop_child()) != NULL) {
 		timer_start(&timer_enq_deq_tasks);
+#ifdef STEAL_ADAPTIVE
+		flat_tasks_in_series++;
+#endif
 		run_task(task);
 		deque_list_tl_task_cache(deque, task);
 		timer_end(&timer_enq_deq_tasks);
@@ -1219,13 +1247,11 @@ void RT_taskwait(atomic_t *num_children)
 		timer_end(&timer_idle);
 		timer_start(&timer_send_recv_tasks);
 		channel_receive(chan_tasks[ID], (void *)&task, sizeof(task));
-#ifdef STEAL_HALF
 		if (loot[0] > 1) {
 			channel_receive(chan_tasks[ID], (void *)&tail, sizeof(Task *));
 			task = deque_list_tl_pop(deque_list_tl_prepend(deque, task, tail, loot[0]));
 			REQ_OPEN();
 		}
-#endif
 #ifdef VICTIM_CHECK
 		if (loot[0] == 1 && SPLITTABLE(task, task->start, task->end)) {
 			REQ_OPEN();
@@ -1240,6 +1266,9 @@ void RT_taskwait(atomic_t *num_children)
 		//TODO Figure out at which points updates are reasonable
 		//UPDATE();
 		timer_start(&timer_enq_deq_tasks);
+#ifdef STEAL_ADAPTIVE
+		flat_tasks_in_series++;
+#endif
 		run_task(task);
 		deque_list_tl_task_cache(deque, task);
 		timer_end(&timer_enq_deq_tasks);
@@ -1256,6 +1285,15 @@ void push(Task *task)
 	struct steal_request req;
 
 	deque_list_tl_push(deque, task);
+
+#ifdef STEAL_ADAPTIVE
+	flat_tasks_in_series = 0;
+	if (stealhalf) {
+		// Switch back to steal-one
+		//LOG("Worker %d switches back to steal-one\n", ID);
+		stealhalf = false;
+	}
+#endif
 
 	REQ_OPEN();
 
