@@ -1327,7 +1327,7 @@ Task *pop(void)
 	while (RECV_REQ(&req)) {
 		// If we just popped a loop task, we may split right here
 		// Makes handle_steal_request simpler
-		if (SPLITTABLE(task, task->start, task->end) && req.ID != ID) {
+		if (deque_list_tl_empty(deque) && SPLITTABLE(task, task->start, task->end) && req.ID != ID) {
 			split_loop(task, task->start, &task->end, &req);
 		} else {
 			handle_steal_request(&req);
@@ -1353,7 +1353,7 @@ Task *pop_child(void)
 	while (RECV_REQ(&req)) {
 		// If we just popped a loop task, we may split right here
 		// Makes handle_steal_request simpler
-		if (SPLITTABLE(task, task->start, task->end) && req.ID != ID) {
+		if (deque_list_tl_empty(deque) && SPLITTABLE(task, task->start, task->end) && req.ID != ID) {
 			split_loop(task, task->start, &task->end, &req);
 		} else {
 			handle_steal_request(&req);
@@ -1376,17 +1376,28 @@ bool RT_loop_init(long *start, long *end)
 	return true;
 }
 
+// Returns true when the current task is split, false otherwise
 bool RT_loop_split(long next, long *end)
 {
 	Task *this = get_current_task();
 	struct steal_request req;
 
-	if (!SPLITTABLE(this, next, *end))
-		return false;
-
     // Split lazily, that is, only when needed
-	if (!RECV_REQ(&req))
+	if (!RECV_REQ(&req)) {
 		return false;
+	}
+
+	// Decline steal request in case we can't handle it
+	if (!SPLITTABLE(this, next, *end) && deque_list_tl_empty(deque)) {
+		decline_steal_request(&req);
+		return false;
+	}
+
+	// Try to deal out independent tasks first
+	if (!deque_list_tl_empty(deque)) {
+		handle_steal_request(&req);
+		return false;
+	}
 
 	if (req.ID == ID) {
 		// Don't split in this case; that would be silly
@@ -1410,6 +1421,8 @@ static inline long split_half(long start, long end)
 
 static void split_loop(Task *task, long start, long *end, struct steal_request *req)
 {
+	assert(req->ID != ID);
+
 	Task *dup = task_alloc();
 	long split;
 	int loot[2] = { 1, ID };
