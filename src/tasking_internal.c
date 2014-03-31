@@ -98,6 +98,7 @@ int tasking_internal_init(int *argc UNUSED, char ***argv UNUSED)
 	current_task->fn = NULL;
 	current_task->is_loop = false;
 	current_task->start = 0;
+	current_task->cur = 0;
 	current_task->end = 0;
 
 	num_tasks_exec_worker = 0;

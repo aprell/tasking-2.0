@@ -261,6 +261,7 @@ int RT_init(void)
 	// At this point, we have not yet decided who will be manager(s)
 	assert(is_manager == false);
 	assert(sizeof(struct steal_request) == 32);
+	assert(sizeof(Task) == 192);
 
 	int i;
 

@@ -24,7 +24,7 @@ struct task {
 	};
 	void (*fn)(void *);
 	bool is_loop;
-	long start, end;
+	long start, cur, end;
 	// Task body carrying user data
 	char data[TASK_DATA_SIZE];
 };
@@ -38,6 +38,7 @@ static inline Task *task_zero(Task *task)
 
 	task->is_loop = false;
 	task->start = 0;
+	task->cur = 0;
 	task->end = 0;
 
 	return task;

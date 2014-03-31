@@ -282,6 +282,7 @@ do { \
 	__task->fn = (void (*)(void *))f##_task_func; \
 	__task->is_loop = true; \
 	__task->start = (s); \
+	__task->cur = (s); \
 	__task->end = (e); \
 	\
 	__d = (struct f##_task_data *)__task->data; \
