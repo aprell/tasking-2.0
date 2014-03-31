@@ -19,15 +19,11 @@ struct task {
 	// Shouldn't be interpreted if task was created by a different worker
 	struct task *parent;
 	struct {
-		int created_by;
-		int mpb_offset;
-	};
-	struct {
 		struct task *prev;
 		struct task *next;
 	};
 	void (*fn)(void *);
-	bool is_loop; 
+	bool is_loop;
 	long start, end;
 	// Task body carrying user data
 	char data[TASK_DATA_SIZE];
@@ -70,7 +66,7 @@ static inline char *task_data(Task *task)
 
 /*****************************************************************************
  * Private memory (PRM) task queue
- * Circular doubly-linked list 
+ * Circular doubly-linked list
  * (Linux kernel implementation, adapted for user-space)
  *****************************************************************************/
 

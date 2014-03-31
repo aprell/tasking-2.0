@@ -75,11 +75,11 @@ int tasking_internal_init(int *argc UNUSED, char ***argv UNUSED)
 	pthread_barrier_init(&global_barrier, NULL, num_workers);
 
 	// Master thread
-	ID = IDs[0] = 0; 
+	ID = IDs[0] = 0;
 
 	// Bind master thread to CPU 0
 	set_thread_affinity(0);
-	
+
 	// Create num_workers-1 worker threads
 	for (i = 1; i < num_workers; i++) {
 		IDs[i] = i;
@@ -96,8 +96,6 @@ int tasking_internal_init(int *argc UNUSED, char ***argv UNUSED)
 	set_current_task((Task *)malloc(sizeof(Task)));
 	current_task->parent = NULL;
 	current_task->fn = NULL;
-	current_task->created_by = -1;
-	current_task->mpb_offset = -1;
 	current_task->is_loop = false;
 	current_task->start = 0;
 	current_task->end = 0;
@@ -177,7 +175,7 @@ int tasking_internal_exit(void)
 	free(IDs);
 	free(tasking_finished);
 	free(num_tasks_exec);
-	
+
 	// Deallocate root task
 	assert(is_root_task(current_task));
 	free(current_task);
