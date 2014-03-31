@@ -16,13 +16,11 @@ ASYNC_DECL(sum, int a; int b, a, b);
 
 void sum_loop(void *v __attribute__((unused)))
 {
-	long s, e, i;
+	long i;
 
-	assert(RT_loop_init(&s, &e));
-
-	for (i = s; i < e; i++) {
+	for_each_task (i) {
 		printf("%2d: %2ld + %2ld = %2ld\n", ID, i, i+1, i+i+1);
-		RT_loop_split(i+1, &e);
+		RT_loop_split();
 	}
 }
 

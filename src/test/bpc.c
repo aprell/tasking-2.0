@@ -13,7 +13,7 @@
 
 static int DEPTH; // For example, 10000
 static int NUM_TASKS_PER_DEPTH; // For example, 9
-// The total number of tasks in the BPC benchmark is 
+// The total number of tasks in the BPC benchmark is
 // (NUM_TASKS_PER_DEPTH + 1) * DEPTH
 static int NUM_TASKS_TOTAL;
 static int TASK_GRANULARITY; // in microseconds
@@ -62,13 +62,11 @@ ASYNC_DECL(bpc_produce, int n; int d, n, d);
 #ifdef LOOPTASKS
 void bpc_produce_loop(void *v __attribute__((unused)))
 {
-	long i, s, e;
+	long i;
 
-	RT_loop_init(&s, &e);
-
-	for (i = s; i < e; i++) {
+	for_each_task (i) {
 		bpc_consume(TASK_GRANULARITY);
-		RT_loop_split(i+1, &e);
+		RT_loop_split();
 	}
 }
 
@@ -79,7 +77,7 @@ void bpc_produce(int n, int d)
 	if (d > 0)
 		// Create producer task...
 		ASYNC(bpc_produce, n, d-1);
-	else 
+	else
 		return;
 
 	// followed by n consumer tasks (in the form of a loop task)
@@ -97,7 +95,7 @@ void bpc_produce(int n, int d)
 	if (d > 0)
 		// Create producer task...
 		ASYNC(bpc_produce, n, d-1);
-	else 
+	else
 		return;
 
 	// followed by n consumer tasks
@@ -113,7 +111,7 @@ void bpc_produce_seq(int n, int d)
 
 	if (d > 0)
 		bpc_produce_seq(n, d-1);
-	else 
+	else
 		return;
 
 	for (i = 0; i < n; i++) {

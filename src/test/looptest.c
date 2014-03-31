@@ -22,14 +22,12 @@ do { \
 
 int loop_test(void *_ __attribute__((unused)))
 {
-	long s, e, i;
+	long i;
 	int res = 0;
 
-	assert(RT_loop_init(&s, &e));
-
-	for (i = s; i < e; i++) {
+	for_each_task (i) {
 		res += i;
-		RT_loop_split(i+1, &e);
+		RT_loop_split();
 	}
 
 	return res;

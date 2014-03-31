@@ -459,7 +459,7 @@ static inline void UPDATE(void);
 static inline void send_steal_request(bool idle);
 static inline void decline_steal_request(struct steal_request *);
 static inline void decline_all_steal_requests(void);
-static inline void split_loop(Task *, long, long *, struct steal_request *);
+static inline void split_loop(Task *, struct steal_request *);
 
 #define SEND_REQ(chan, req) \
 do { \
@@ -935,14 +935,8 @@ int RT_check_for_steal_requests(void)
 	return n;
 }
 
-// t MAY BE NULL, so we can't implement this with an inline function.
-// Consider this use:
-// if (SPLITTABLE(task, task->start, task->end))
-//     ...
-// If task is NULL -> segfault
-// Macro expansion plus short circuit evaluation prevent this from happening.
-#define SPLITTABLE(t, s, e) \
-	((bool)((t) != NULL && (t)->is_loop && abs((e)-(s)) > 1))
+#define SPLITTABLE(t) \
+	((bool)((t) != NULL && (t)->is_loop && abs((t)->end - (t)->cur) > 1))
 
 // Executed by worker threads
 void *schedule(UNUSED(void *args))
@@ -987,7 +981,7 @@ void *schedule(UNUSED(void *args))
 			REQ_OPEN();
 		}
 #ifdef VICTIM_CHECK
-		if (loot[0] == 1 && SPLITTABLE(task, task->start, task->end)) {
+		if (loot[0] == 1 && SPLITTABLE(task)) {
 			REQ_OPEN();
 		}
 #endif
@@ -1076,7 +1070,7 @@ empty_local_queue:
 		REQ_OPEN();
 	}
 #ifdef VICTIM_CHECK
-	if (loot[0] == 1 && SPLITTABLE(task, task->start, task->end)) {
+	if (loot[0] == 1 && SPLITTABLE(task)) {
 		REQ_OPEN();
 	}
 #endif
@@ -1174,7 +1168,7 @@ void RT_force_future_channel(Channel *chan, void *data, unsigned int size)
 			REQ_OPEN();
 		}
 #ifdef VICTIM_CHECK
-		if (loot[0] == 1 && SPLITTABLE(task, task->start, task->end)) {
+		if (loot[0] == 1 && SPLITTABLE(task)) {
 			REQ_OPEN();
 		}
 #endif
@@ -1254,7 +1248,7 @@ void RT_taskwait(atomic_t *num_children)
 			REQ_OPEN();
 		}
 #ifdef VICTIM_CHECK
-		if (loot[0] == 1 && SPLITTABLE(task, task->start, task->end)) {
+		if (loot[0] == 1 && SPLITTABLE(task)) {
 			REQ_OPEN();
 		}
 #endif
@@ -1328,8 +1322,8 @@ Task *pop(void)
 	while (RECV_REQ(&req)) {
 		// If we just popped a loop task, we may split right here
 		// Makes handle_steal_request simpler
-		if (deque_list_tl_empty(deque) && SPLITTABLE(task, task->start, task->end) && req.ID != ID) {
-			split_loop(task, task->start, &task->end, &req);
+		if (deque_list_tl_empty(deque) && SPLITTABLE(task) && req.ID != ID) {
+			split_loop(task, &req);
 		} else {
 			handle_steal_request(&req);
 		}
@@ -1354,8 +1348,8 @@ Task *pop_child(void)
 	while (RECV_REQ(&req)) {
 		// If we just popped a loop task, we may split right here
 		// Makes handle_steal_request simpler
-		if (deque_list_tl_empty(deque) && SPLITTABLE(task, task->start, task->end) && req.ID != ID) {
-			split_loop(task, task->start, &task->end, &req);
+		if (deque_list_tl_empty(deque) && SPLITTABLE(task) && req.ID != ID) {
+			split_loop(task, &req);
 		} else {
 			handle_steal_request(&req);
 		}
@@ -1364,21 +1358,8 @@ Task *pop_child(void)
 	return task;
 }
 
-bool RT_loop_init(long *start, long *end)
-{
-	Task *this = get_current_task();
-
-	if (!this->is_loop)
-		return false;
-
-	*start = this->start;
-	*end = this->end;
-
-	return true;
-}
-
 // Returns true when the current task is split, false otherwise
-bool RT_loop_split(long next, long *end)
+bool RT_loop_split(void)
 {
 	Task *this = get_current_task();
 	struct steal_request req;
@@ -1389,7 +1370,7 @@ bool RT_loop_split(long next, long *end)
 	}
 
 	// Decline steal request in case we can't handle it
-	if (!SPLITTABLE(this, next, *end) && deque_list_tl_empty(deque)) {
+	if (!SPLITTABLE(this) && deque_list_tl_empty(deque)) {
 		decline_steal_request(&req);
 		return false;
 	}
@@ -1409,7 +1390,7 @@ bool RT_loop_split(long next, long *end)
 		return false;
 	}
 
-	split_loop(this, next, end, &req);
+	split_loop(this, &req);
 
 	return true;
 }
@@ -1420,7 +1401,7 @@ static inline long split_half(long start, long end)
     return start + (end - start) / 2;
 }
 
-static void split_loop(Task *task, long start, long *end, struct steal_request *req)
+static void split_loop(Task *task, struct steal_request *req)
 {
 	assert(req->ID != ID);
 
@@ -1433,11 +1414,12 @@ static void split_loop(Task *task, long start, long *end, struct steal_request *
 
 	// Split iteration range according to given strategy
     // [start, end) => [start, split) + [split, end)
-	split = split_half(start, *end);
+	split = split_half(task->cur, task->end);
 
 	// New task gets upper half of iterations
 	dup->start = split;
-	dup->end = *end;
+	dup->cur = split;
+	dup->end = task->end;
 
 	//LOG("Worker %2d: Sending (%ld, %ld) to worker %d\n", ID, dup->start, dup->end, req->ID);
 
@@ -1455,7 +1437,7 @@ static void split_loop(Task *task, long start, long *end, struct steal_request *
 	tasks_sent++;
 
 	// Current task continues with lower half of iterations
-	task->end = *end = split;
+	task->end = split;
 
 	//LOG("Worker %2d: Continuing with (%ld, %ld)\n", ID, task->start, task->end);
 }

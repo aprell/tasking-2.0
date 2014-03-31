@@ -126,11 +126,11 @@ Task *pop_child(void);
 
 Task *task_alloc(void);
 
-// These functions implement support for loop tasks and work-splitting
-bool RT_loop_init(long *start, long *end);
-bool RT_loop_split(long next, long *end);
+// This function implements support for loop tasks and work-splitting
+bool RT_loop_split(void);
 
 // For user code
+// TODO: Needs to be loop task aware
 int RT_check_for_steal_requests(void);
 
 #endif // RUNTIME_H

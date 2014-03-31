@@ -38,7 +38,7 @@ void spc_consume(int usec)
 		// Calculate fib(30) iteratively
 		int fib = 0, f2 = 0, f1 = 1, i;
 		for (i = 2; i <= 30; i++) {
-			fib = f1 + f2; 
+			fib = f1 + f2;
 			f2 = f1;
 			f1 = fib;
 		}
@@ -49,13 +49,11 @@ void spc_consume(int usec)
 #ifdef LOOPTASKS
 void spc_produce_loop(void *v __attribute__((unused)))
 {
-	long i, s, e;
+	long i;
 
-	RT_loop_init(&s, &e);
-
-	for (i = s; i < e; i++) {
+	for_each_task (i) {
 		spc_consume(TASK_GRANULARITY);
-		RT_loop_split(i+1, &e);
+		RT_loop_split();
 	}
 }
 
@@ -108,7 +106,7 @@ int main(int argc, char *argv[])
 	//spc_produce_seq(NUM_TASKS_TOTAL);
 	spc_produce(NUM_TASKS_TOTAL);
 	TASKING_BARRIER();
-	
+
 	end = Wtime_msec();
 
 	printf("Elapsed wall time (%dus/task): %.2lf ms\n", TASK_GRANULARITY, end-start);

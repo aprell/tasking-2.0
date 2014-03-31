@@ -37,7 +37,7 @@ Planet *bodies, *bodies2;
 void advance(int nbodies, int tick, double dt)
 {
 	Planet b, *from, *to;
-	long i, j, s, e;
+	long i, j;
 
 	if (tick) {
 		from = bodies2;
@@ -47,9 +47,7 @@ void advance(int nbodies, int tick, double dt)
 		to = bodies2;
 	}
 
-	RT_loop_init(&s, &e);
-
-	for (i = s; i < e; i++) {
+	for_each_task (i) {
 		memcpy(&b, &from[i], sizeof(Planet));
 		for (j = 0; j < nbodies; j++) {
 			Planet *b2 = &from[j];
@@ -69,7 +67,7 @@ void advance(int nbodies, int tick, double dt)
 
 		memcpy(&to[i], &b, sizeof(Planet));
 
-		RT_loop_split(i+1, &e);
+		RT_loop_split();
 		//(void)RT_check_for_steal_requests();
 	}
 }
@@ -230,10 +228,10 @@ int main(int argc, char *argv[])
 		TASKING_BARRIER();
 		//swap(&bodies, &bodies2);
 	}
-	
+
 	//assert(tasking_tasks_exec() == N * n);
 	end = Wtime_msec();
-	
+
 	printf("Elapsed: %.2lfms (%.2lfms per iteration)\n", end - start, (end - start)/n);
 	printf("%.10lf\n", energy(N, bodies));
 

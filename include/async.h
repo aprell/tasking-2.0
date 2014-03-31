@@ -1,6 +1,7 @@
 #ifndef ASYNC_H
 #define ASYNC_H
 
+#include <assert.h>
 #include "tasking_internal.h"
 #include "chanref.h"
 #include "timer.h"
@@ -129,6 +130,7 @@ void fname##_task_func(struct fname##_task_data *__d) \
 
 // User code need not be aware of channels
 typedef chan future;
+
 #define new_future(f) new_##f##_future()
 
 /* Async functions with return values are basically futures
@@ -290,5 +292,20 @@ do { \
 	push(__task); \
 	timer_end(&timer_enq_deq_tasks); \
 } while (0)
+
+/* Iterate over loop task
+ *
+ * Example:
+ * long i;
+ * for_each_task (i) {
+ *     // Body of task i
+ *     RT_split_loop();
+ * }
+ */
+#define for_each_task(i) \
+	Task *this = get_current_task(); \
+	assert(this->is_loop); \
+	assert(this->start == this->cur); \
+	for (i = this->start, this->cur++; i < this->end; i++, this->cur++)
 
 #endif // ASYNC_H

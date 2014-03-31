@@ -50,7 +50,7 @@ static double **BA, **BB, **BC;
 #define localBB(i,j) localBB[(i) * NBD + (j)]
 #define localBC(i,j) localBC[(i) * NBD + (j)]
 
-static void copy_elements(double BA[BSIZE][BSIZE], double BB[BSIZE][BSIZE], 
+static void copy_elements(double BA[BSIZE][BSIZE], double BB[BSIZE][BSIZE],
 						  double BC[BSIZE][BSIZE], int i, int j)
 {
 	int m, n;
@@ -108,7 +108,7 @@ static void mm_init(int argc, char *argv[])
 	// Error checking...
 	assert(DIM > 0 && BSIZE > 0);
 	assert(DIM % BSIZE == 0);
-	
+
 	NBD = DIM / BSIZE;
 	NB  = NBD * NBD;
 	NEB = BSIZE * BSIZE;
@@ -167,7 +167,7 @@ static void initfn(void)
 		localBA[i] = (double *)malloc(NEB * sizeof(double));
 		localBB[i] = (double *)malloc(NEB * sizeof(double));
 		localBC[i] = (double *)malloc(NEB * sizeof(double));
-		
+
 		memcpy(localBA[i], BA[i], NEB * sizeof(double));
 		memcpy(localBB[i], BB[i], NEB * sizeof(double));
 		memcpy(localBC[i], BC[i], NEB * sizeof(double));
@@ -213,9 +213,9 @@ static void exitfn(void)
 }
 #endif
 
-//============================================================================= 
+//=============================================================================
 // Simple multiplication
-//============================================================================= 
+//=============================================================================
 
 void matmul(int i, int j)
 {
@@ -224,20 +224,18 @@ void matmul(int i, int j)
 	for (k = 0; k < DIM; k++)
 		//localC(i,j) += localA(i,k) * localB(k,j);
 		C(i,j) += A(i,k) * B(k,j);
-		
+
 	//C(i,j) = localC(i,j);
 }
 
 #ifdef LOOPTASKS
 void matmul_loop(int i)
 {
-	long j, s, e;
+	long j;
 
-	RT_loop_init(&s, &e);
-
-	for (j = s; j < e; j++) {
+	for_each_task (j) {
 		matmul(i, j);
-		RT_loop_split(j+1, &e);
+		RT_loop_split();
 	}
 }
 
@@ -248,7 +246,7 @@ void mm(void)
 	int i;
 
 	for (i = 0; i < DIM; i++)
-		// Create a loop task for each matrix row 
+		// Create a loop task for each matrix row
 		ASYNC_FOR(matmul_loop, 0, DIM, i);
 }
 
@@ -276,9 +274,9 @@ void mm_seq(void)
 			matmul(i, j);
 }
 
-//============================================================================= 
+//=============================================================================
 // Block multiplication
-//============================================================================= 
+//=============================================================================
 
 void __block_matmul(double C[BSIZE][BSIZE], double A[BSIZE][BSIZE], double B[BSIZE][BSIZE])
 {
@@ -304,13 +302,11 @@ void block_matmul(int i, int j, int k)
 #ifdef LOOPTASKS
 void block_matmul_loop(int i, int k)
 {
-	long j, s, e;
+	long j;
 
-	RT_loop_init(&s, &e);
-
-	for (j = s; j < e; j++) {
+	for_each_task (j) {
 		block_matmul(i, j, k);
-		RT_loop_split(j+1, &e);
+		RT_loop_split();
 	}
 }
 
@@ -374,12 +370,12 @@ static void write_result(const char *fname)
 		return;
 	}
 
-	fprintf(file, "#define REF_DIM %d\n", DIM);	
-	fprintf(file, "#define REF_BSIZE %d\n", BSIZE);	
+	fprintf(file, "#define REF_DIM %d\n", DIM);
+	fprintf(file, "#define REF_BSIZE %d\n", BSIZE);
 	fprintf(file, "#define REF_SEED %d\n\n", SEED);
 
 	fprintf(file, "static double REF_C[] = {\n");
-	
+
 	// One element per line
 	for (i = 0; i < NE-1; i++)
 		fprintf(file, "\t%lf,\n", C[i]);
@@ -434,7 +430,7 @@ int main(int argc, char *argv[])
 	end = Wtime_msec();
 
 	printf("Elapsed wall time: %.2lfms\n", end - start);
-	
+
 	// Result matrices
 	//print_linear_matrix(C);
 	//print_block_matrix(BC);

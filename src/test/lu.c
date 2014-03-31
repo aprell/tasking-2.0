@@ -1,6 +1,6 @@
 //#define LOOPTASKS
 #include <stdio.h>
-#include <stdlib.h> 
+#include <stdlib.h>
 #include <stdbool.h>
 #include <assert.h>
 #include "tasking.h"
@@ -94,7 +94,7 @@ static void __fwd(int BSIZE, double A[BSIZE][BSIZE], double C[BSIZE][BSIZE])
 	int i, j, k;
 
 	for (j = 0; j < BSIZE; j++) {
-		for (k = 0; k < BSIZE; k++) { 
+		for (k = 0; k < BSIZE; k++) {
 			for (i = k + 1; i < BSIZE; i++) {
 				C[i][j] = C[i][j] - A[i][k] * C[k][j];
 			}
@@ -119,7 +119,7 @@ static void lu_init(int argc, char *argv[])
 		printf("Usage: %s <dimension> <blocksize>\n", argv[0]);
 		exit(0);
 	}
-	
+
 	DIM = atoi(argv[1]);
 	BSIZE = atoi(argv[2]);
 	// Error checking...
@@ -138,21 +138,21 @@ static void lu_init(int argc, char *argv[])
 	for (i = 0; i < NBD; i++) {
 		for (j = 0; j < NBD; j++) {
 			null_entry = false;
-			if ((i < j) && (i % 3 != 0)) 
+			if ((i < j) && (i % 3 != 0))
 				null_entry = true;
-			if ((i > j) && (j % 3 != 0)) 
+			if ((i > j) && (j % 3 != 0))
 				null_entry = true;
-			if (i % 2 == 1) 
+			if (i % 2 == 1)
 				null_entry = true;
-			if (j % 2 == 1) 
+			if (j % 2 == 1)
 				null_entry = true;
-			if (i == j) 
+			if (i == j)
 				null_entry = false;
-			if (i == j-1) 
+			if (i == j-1)
 				null_entry = false;
-			if (i-1 == j) 
-				null_entry = false; 
-			
+			if (i-1 == j)
+				null_entry = false;
+
 			if (null_entry == false)
 				A(i,j) = (double *)malloc(NEB * sizeof(double));
 			else A(i,j) = NULL;
@@ -196,9 +196,9 @@ static void print_structure(double *A[NBD][NBD])
 	for (i = 0; i < NBD; i++) {
 		for (j = 0; j < NBD; j++) {
 			p = A[i][j];
-			if (p) 
+			if (p)
 				printf("1");
-			else 
+			else
 				printf("0");
 		}
 		printf("\n");
@@ -287,15 +287,13 @@ static void lu_decompose(void)
 #ifdef LOOPTASKS
 static void fwd_loop(int k)
 {
-	long j, s, e;
+	long j;
 
-	RT_loop_init(&s, &e);
-
-	for (j = s; j < e; j++) {
+	for_each_task (j) {
 		if (A(k,j)) {
 			fwd(k, j);
 		}
-		RT_loop_split(j+1, &e);
+		RT_loop_split();
 	}
 }
 
@@ -303,15 +301,13 @@ ASYNC_DECL(fwd_loop, int k, k);
 
 static void bdiv_loop(int k)
 {
-	long i, s, e;
+	long i;
 
-	RT_loop_init(&s, &e);
-
-	for (i = s; i < e; i++) {
+	for_each_task (i) {
 		if (A(i,k)) {
 			bdiv(k, i);
 		}
-		RT_loop_split(i+1, &e);
+		RT_loop_split();
 	}
 }
 
@@ -319,12 +315,9 @@ ASYNC_DECL(bdiv_loop, int k, k);
 
 static void bmod_loop(int k)
 {
-	long i, s, e;
-	int j;
+	long i, j;
 
-	RT_loop_init(&s, &e);
-
-	for (i = s; i < e; i++) {
+	for_each_task (i) {
 		if (A(i,k)) {
 			for (j = k + 1; j < NBD; j++) {
 				if (A(k,j)) {
@@ -334,7 +327,7 @@ static void bmod_loop(int k)
 				}
 			}
 		}
-		RT_loop_split(i+1, &e);
+		RT_loop_split();
 	}
 }
 
@@ -445,7 +438,7 @@ static void lu_decompose(void)
 						task.B = ULL(A[k*NBD+j]);
 						task.C = ULL(A[i*NBD+j]);
 						tpool_put_task(tpool, &task, sizeof(LU_task), bmod());
-						//bmod(BSIZE, (void *)A[i*NBD+k], (void *)A[k*NBD+j], 
+						//bmod(BSIZE, (void *)A[i*NBD+k], (void *)A[k*NBD+j],
 						//	  (void *)A[i*NBD+j]);
 						//printf("Scheduling bmod task for C[%d][%d]\n", i, j);
 					}
@@ -471,7 +464,7 @@ static void lu_decompose(void)
 						task.B = ULL(A[k*NBD+j]);
 						task.C = ULL(A[i*NBD+j]);
 						tpool_put_task(tpool, &task, sizeof(task), bmod());
-						//bmod(BSIZE, (void *)A[i*NBD+k], (void *)A[k*NBD+j], 
+						//bmod(BSIZE, (void *)A[i*NBD+k], (void *)A[k*NBD+j],
 						//		(void *)A[i*NBD+j]);
 					}
 				}
@@ -512,11 +505,11 @@ static void decompose_offloaded(void)
 
 		//XXX
 		/* Not really necessary, but we need to make sure that we don't
-		 * just overwrite the previous offload information 
+		 * just overwrite the previous offload information
 		 * There might be a better way of doing this, e.g. blocking until the
 		 * offload information has been cleared by the SPEs */
 		tpool_wait_for_completion(tpool);
-		
+
 		tpool_offload_prepare(tpool, &task, sizeof(task), bdiv_prepare());
 		tpool_offload_execute(tpool, NBD-(k+1), task_creats, bdiv());
 
@@ -532,7 +525,7 @@ static void decompose_offloaded(void)
 		}
 
 		tpool_wait_for_completion(tpool);
-			
+
 		tpool_offload_prepare(tpool, &task, sizeof(task), bmod_prepare());
 		tpool_offload_execute(tpool, (NBD-(k+1)) * (NBD-(k+1)), task_creats, bmod());
 
@@ -560,7 +553,7 @@ static void decompose_splitting(void)
 	for (k = 0; k < NBD; k++) {
 		task.k = k;
 
-		tpool_put_task_bundle(tpool, 0, 1, &task, sizeof(task), 
+		tpool_put_task_bundle(tpool, 0, 1, &task, sizeof(task),
 				              lu0_prepare(), lu0());
 		tpool_wait_for_completion(tpool);
 
@@ -568,7 +561,7 @@ static void decompose_splitting(void)
 				              fwd_prepare(), fwd());
 		tpool_put_task_bundle(tpool, 0, NBD-(k+1), &task, sizeof(task),
 				              bdiv_prepare(), bdiv());
-		
+
 		for (i = k + 1; i < NBD; i++) {
 			if (A[i*NBD+k]) {
 				for (j = k + 1; j < NBD; j++) {
@@ -582,7 +575,7 @@ static void decompose_splitting(void)
 
 		tpool_wait_for_completion(tpool);
 
-		tpool_put_task_bundle(tpool, 0, (NBD-(k+1)) * (NBD-(k+1)), &task, 
+		tpool_put_task_bundle(tpool, 0, (NBD-(k+1)) * (NBD-(k+1)), &task,
 				              sizeof(task), bmod_prepare(), bmod());
 		tpool_wait_for_completion(tpool);
 	}
@@ -596,7 +589,7 @@ int main(int argc, char *argv[])
 	double start, end;
 
 	lu_init(argc, argv);
-	
+
 	TASKING_INIT(&argc, &argv);
 
 	start = Wtime_msec();
