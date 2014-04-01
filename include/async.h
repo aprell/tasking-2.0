@@ -23,7 +23,7 @@ do { \
 	*(x) = (typeof(*(x))){ args }; \
 } while (0)
 
-/* Unpack data structure x (up to five members, extend as needed)
+/* Unpack data structure x (up to ten members, extend as needed)
  */
 #define UNPACK1(x, _1) \
 	typeof((x)->_1) _1 = (x)->_1
