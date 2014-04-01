@@ -1369,30 +1369,22 @@ bool RT_loop_split(void)
 		return false;
 	}
 
-	// Decline steal request in case we can't handle it
-	if (!SPLITTABLE(this) && deque_list_tl_empty(deque)) {
-		decline_steal_request(&req);
-		return false;
-	}
-
-	// Try to deal out independent tasks first
+	// Send independent tasks if possible
 	if (!deque_list_tl_empty(deque)) {
 		handle_steal_request(&req);
 		return false;
 	}
 
-	if (req.ID == ID) {
-		// Don't split in this case; that would be silly
-		// Discard steal request
-		assert(!req.quiescent);
-		assert(requested);
-		requested = false;
-		return false;
+	// Split if possible
+	if (SPLITTABLE(this) && req.ID != ID) {
+		split_loop(this, &req);
+		return true;
 	}
 
-	split_loop(this, &req);
+	// Decline (or ignore) steal request
+	handle_steal_request(&req);
 
-	return true;
+	return false;
 }
 
 // Split iteration range in half
