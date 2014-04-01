@@ -129,8 +129,7 @@ Task *task_alloc(void);
 // This function implements support for loop tasks and work-splitting
 bool RT_loop_split(void);
 
-// For user code
-// TODO: Needs to be loop task aware
+// For user code: poll for incoming steal requests and handle them if possible
 int RT_check_for_steal_requests(void);
 
 #endif // RUNTIME_H

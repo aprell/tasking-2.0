@@ -912,8 +912,13 @@ static void handle_steal_request(struct steal_request *req)
 	}
 }
 
+// Loop task with iterations left for splitting?
+#define SPLITTABLE(t) \
+	((bool)((t) != NULL && (t)->is_loop && abs((t)->end - (t)->cur) > 1))
+
 int RT_check_for_steal_requests(void)
 {
+	Task *this = get_current_task();
 	struct steal_request req;
 	int n = 0;
 
@@ -926,7 +931,16 @@ int RT_check_for_steal_requests(void)
 
 	// Check if someone requested to steal from us
 	while (RECV_REQ(&req)) {
-		handle_steal_request(&req);
+		// (1) Send task(s) if possible
+		// (2) Split current task if possible
+		// (3) Decline (or ignore) steal request
+		if (!deque_list_tl_empty(deque)) {
+			handle_steal_request(&req);
+		} else if (SPLITTABLE(this) && req.ID != ID) {
+			split_loop(this, &req);
+		} else {
+			handle_steal_request(&req);
+		}
 		n++;
 	}
 
@@ -934,9 +948,6 @@ int RT_check_for_steal_requests(void)
 
 	return n;
 }
-
-#define SPLITTABLE(t) \
-	((bool)((t) != NULL && (t)->is_loop && abs((t)->end - (t)->cur) > 1))
 
 // Executed by worker threads
 void *schedule(UNUSED(void *args))
