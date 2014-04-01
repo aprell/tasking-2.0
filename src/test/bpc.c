@@ -31,10 +31,11 @@ extern PRIVATE mytimer_t timer_enq_deq_tasks;
 void bpc_consume(int usec)
 {
 	double start, end, elapsed;
+	double RT_start;
 	start = Wtime_usec();
 	end = usec;
 	int x = 0;
-	
+
 	for (;;) {
 		elapsed = Wtime_usec() - start;
 		if (elapsed >= end)
@@ -43,14 +44,16 @@ void bpc_consume(int usec)
 		// Calculate fib(30) iteratively
 		int fib = 0, f2 = 0, f1 = 1, i;
 		for (i = 2; i <= 30; i++) {
-			fib = f1 + f2; 
+			fib = f1 + f2;
 			f2 = f1;
 			f1 = fib;
 		}
 		x++;
 		if (x == 10) {
+			RT_start = Wtime_usec();
 			(void)RT_check_for_steal_requests();
 			x = 0;
+			elapsed -= Wtime_usec() - RT_start;
 		}
 	}
 	//printf("Elapsed: %.2lfus\n", elapsed);
