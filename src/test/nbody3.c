@@ -18,7 +18,7 @@
 #include "async.h"
 #include "wtime.h"
 
-#define LOOPTASKS
+//#define LOOPTASKS
 
 #define PI 3.141592653589793
 #define solar_mass (4 * PI * PI)
@@ -68,7 +68,6 @@ void advance(int nbodies, int tick, double dt)
 		memcpy(&to[i], &b, sizeof(Planet));
 
 		RT_loop_split();
-		//(void)RT_check_for_steal_requests();
 	}
 }
 
