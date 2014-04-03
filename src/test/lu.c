@@ -21,6 +21,19 @@ static double **A;
 // Returns block A(i,j)
 #define A(i,j) A[(i) * NBD + (j)]
 
+static double *allocate_clean_block(void)
+{
+	double *block;
+	int i;
+
+	block = (double *)malloc(NEB * sizeof(double));
+
+	for (i = 0; i < NEB; i++)
+		block[i] = 0.0;
+
+	return block;
+}
+
 //#pragma css task input(BSIZE) inout(diag)
 static void __lu0(int BSIZE, double C[BSIZE][BSIZE])
 {
@@ -83,6 +96,9 @@ static void __bmod(int BSIZE, double A[BSIZE][BSIZE], double B[BSIZE][BSIZE], do
 
 static void bmod(int i, int j, int k)
 {
+	if (!A(i,j)) {
+		A(i,j) = allocate_clean_block();
+	}
 	__bmod(BSIZE, (void *)A(i,k), (void *)A(k,j), (void *)A(i,j));
 }
 
@@ -206,19 +222,6 @@ static void print_structure(double *A[NBD][NBD])
 	printf("\n");
 }
 
-static double *allocate_clean_block(void)
-{
-	double *block;
-	int i;
-
-	block = (double *)malloc(NEB * sizeof(double));
-
-	for (i = 0; i < NEB; i++)
-		block[i] = 0.0;
-
-	return block;
-}
-
 static void write_to_file(const char *filename)
 {
 	FILE *file = fopen(filename, "w");
@@ -272,8 +275,6 @@ static void lu_decompose(void)
 			if (A(i,k)) {
 				for (j = k + 1; j < NBD; j++) {
 					if (A(k,j)) {
-						if (!A(i,j))
-							A(i,j) = allocate_clean_block();
 						bmod(i, j, k);
 					}
 				}
@@ -321,8 +322,6 @@ static void bmod_loop(int k)
 		if (A(i,k)) {
 			for (j = k + 1; j < NBD; j++) {
 				if (A(k,j)) {
-					if (!A(i,j))
-						A(i,j) = allocate_clean_block();
 					ASYNC(bmod, i, j, k);
 				}
 			}
@@ -379,8 +378,6 @@ static void par_lu_decompose(void)
 			if (A(i,k)) {
 				for (j = k + 1; j < NBD; j++) {
 					if (A(k,j)) {
-						if (!A(i,j))
-							A(i,j) = allocate_clean_block();
 						ASYNC(bmod, i, j, k);
 					}
 				}
