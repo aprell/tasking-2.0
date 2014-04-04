@@ -2,8 +2,10 @@
 #define _GNU_SOURCE
 #endif
 
+#include <string.h>
 #include <pthread.h>
 #include <sched.h>
+#include <syscall.h>
 
 #include "overload_set_thread_affinity.h"
 
@@ -39,8 +41,28 @@ static inline int get_thread_affinity(void)
 static inline int cpu_count(void)
 {
 	cpu_set_t cpuset;
-	
+
 	pthread_getaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
 
 	return CPU_COUNT(&cpuset);
+}
+
+static inline void print_thread_affinity(void)
+{
+	cpu_set_t cpuset;
+	char buf[1000];
+	int i;
+
+	pthread_getaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
+
+	// Thread-ID (Linux)
+	sprintf(buf, "Thread %lu: [ ", syscall(SYS_gettid));
+
+	for (i = 0; i < CPU_SETSIZE; i++) {
+		if (CPU_ISSET(i, &cpuset))
+			sprintf(buf + strlen(buf), "%d ", i);
+	}
+
+	sprintf(buf + strlen(buf), "]");
+	printf("%s\n", buf);
 }
