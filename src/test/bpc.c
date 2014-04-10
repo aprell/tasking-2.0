@@ -146,7 +146,7 @@ int main(int argc, char *argv[])
 
 	end = Wtime_msec();
 
-	printf("Elapsed wall time (%dus/task): %.2lf ms\n", TASK_GRANULARITY, end-start);
+	printf("Elapsed wall time: %.2lf ms (%d us per task)\n", end-start, TASK_GRANULARITY);
 
 	// This should be moved inside TASKING_EXIT()
 	TASKING_BARRIER();

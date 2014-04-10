@@ -231,7 +231,7 @@ int main(int argc, char *argv[])
 	//assert(tasking_tasks_exec() == N * n);
 	end = Wtime_msec();
 
-	printf("Elapsed: %.2lfms (%.2lfms per iteration)\n", end - start, (end - start)/n);
+	printf("Elapsed wall time: %.2lf ms (%.2lf ms per iteration)\n", end - start, (end - start)/n);
 	printf("%.10lf\n", energy(N, bodies));
 
 	// This should be moved inside TASKING_EXIT()

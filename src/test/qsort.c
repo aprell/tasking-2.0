@@ -138,7 +138,7 @@ int main(int argc, char *argv[])
 	end = Wtime_msec();
 	verify_result();
 
-	printf("Elapsed wall time: %.2lfms\n", end - start);
+	printf("Elapsed wall time: %.2lf ms\n", end - start);
 
 	// This should be moved inside TASKING_EXIT()
 	TASKING_BARRIER();

@@ -429,7 +429,7 @@ int main(int argc, char *argv[])
 	TASKING_BARRIER();
 	end = Wtime_msec();
 
-	printf("Elapsed wall time: %.2lfms\n", end - start);
+	printf("Elapsed wall time: %.2lf ms\n", end - start);
 
 	// Result matrices
 	//print_linear_matrix(C);
