@@ -129,9 +129,9 @@ int tasking_internal_statistics(void)
 {
 	MASTER {
 		printf("\n");
-		printf("/========================================\\\n");
-		printf("| Tasks executed: %d\n", tasking_tasks_exec());
-		printf("\\========================================/\n");
+		printf("+========================================+\n");
+		printf("|  Per-worker statistics                 |\n");
+		printf("+========================================+\n");
 	}
 
 	tasking_internal_barrier();
