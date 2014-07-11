@@ -89,9 +89,10 @@ static void verify_result(int n, int res)
 		331160280, 535828590, 866988872, 1402817464
 	};
 
-	if (n < 0 && n > 43) {
-		printf("Cannot verify result: n out of range, %d\n", n);
+	if (n < 0 || n > 43) {
+		printf("Cannot verify result: %d out of range\n", n);
 		fflush(stdout);
+		return;
 	}
 
 	if (res != ntasks[n]+1) {
