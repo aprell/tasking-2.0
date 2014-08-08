@@ -83,7 +83,7 @@ static PRIVATE bool requested;
 
 #ifdef LAST_VICTIM_FIRST
 // ID of last victim from which we got a task
-static int last_victim = -1;
+static PRIVATE int last_victim = -1;
 #endif
 
 // Every worker keeps a list of victims that can be read by other workers
