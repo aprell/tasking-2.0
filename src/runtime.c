@@ -86,6 +86,11 @@ static PRIVATE bool requested;
 static PRIVATE int last_victim = -1;
 #endif
 
+#ifdef STEAL_LEAPFROG
+// ID of last thief
+static PRIVATE int last_thief = -1;
+#endif
+
 // Every worker keeps a list of victims that can be read by other workers
 // Shared state!
 static int *victims[MAXNP];
@@ -455,6 +460,31 @@ static inline int next_victim(struct steal_request *req)
 }
 #endif // STEAL_RANDOM_RR
 
+#ifdef STEAL_LEAPFROG
+#ifndef STEAL_RANDOM
+#error "STEAL_LEAPFROG depends on STEAL_RANDOM"
+#endif
+static inline int leapfrog(struct steal_request *req)
+{
+	int victim;
+
+	if (req->try < my_partition->num_workers_rt-1) {
+		if (last_thief != -1 && last_thief != req->ID) {
+			victim = last_thief;
+			assert(victim != my_partition->manager);
+			return victim;
+		}
+		// Fall back to random victim selection
+		return next_victim(req);
+	}
+
+	victim = victims[req->ID][my_partition->num_workers_rt-1];
+	assert(victim == req->ID);
+
+	return victim;
+}
+#endif // STEAL_LEAPFROG
+
 static inline void UPDATE(void);
 static inline void send_steal_request(bool idle);
 static inline void decline_steal_request(struct steal_request *);
@@ -796,7 +826,11 @@ static inline void send_steal_request(bool idle)
 		}
 #endif
 		copy_victims();
+#ifdef STEAL_LEAPFROG
+		SEND_REQ_WORKER(leapfrog(&steal_req), &steal_req);
+#else
 		SEND_REQ_WORKER(next_victim(&steal_req), &steal_req);
+#endif
 #else // STEAL_RANDOM_RR
 		SEND_REQ_WORKER(random_victim(&steal_req), &steal_req);
 #endif
@@ -899,6 +933,9 @@ static void handle_steal_request(struct steal_request *req)
 		channel_send(chan_notify[req->ID], loot, sizeof(loot));
 		requests_handled++;
 		tasks_sent += loot[0];
+#ifdef STEAL_LEAPFROG
+		last_thief = req->ID;
+#endif
 		timer_end(&timer_send_recv_tasks);
 	} else {
 		// Got steal request, but can't serve it
@@ -1438,6 +1475,9 @@ static void split_loop(Task *task, struct steal_request *req)
 	channel_send(chan_notify[req->ID], loot, sizeof(loot));
 	requests_handled++;
 	tasks_sent++;
+#ifdef STEAL_LEAPFROG
+	last_thief = req->ID;
+#endif
 
 	// Current task continues with lower half of iterations
 	task->end = split;
