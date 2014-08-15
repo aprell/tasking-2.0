@@ -81,8 +81,8 @@ static PRIVATE struct steal_request steal_req;
 // A worker can have only one outstanding steal request
 static PRIVATE bool requested;
 
-#ifdef LAST_VICTIM_FIRST
-// ID of last victim from which we got a task
+#ifdef STEAL_LASTVICTIM
+// ID of last victim
 static PRIVATE int last_victim = -1;
 #endif
 
@@ -460,6 +460,31 @@ static inline int next_victim(struct steal_request *req)
 }
 #endif // STEAL_RANDOM_RR
 
+#ifdef STEAL_LASTVICTIM
+#ifndef STEAL_RANDOM
+#error "STEAL_LASTVICTIM depends on STEAL_RANDOM"
+#endif
+static inline int lastvictim(struct steal_request *req)
+{
+	int victim;
+
+	if (req->try < my_partition->num_workers_rt-1) {
+		if (last_victim != -1 && last_victim != req->ID) {
+			victim = last_victim;
+			assert(victim != my_partition->manager);
+			return victim;
+		}
+		// Fall back to random victim selection
+		return next_victim(req);
+	}
+
+	victim = victims[req->ID][my_partition->num_workers_rt-1];
+	assert(victim == req->ID);
+
+	return victim;
+}
+#endif // STEAL_LASTVICTIM
+
 #ifdef STEAL_LEAPFROG
 #ifndef STEAL_RANDOM
 #error "STEAL_LEAPFROG depends on STEAL_RANDOM"
@@ -813,20 +838,10 @@ static inline void send_steal_request(bool idle)
 #endif
 #ifdef STEAL_RANDOM
 		shuffle_victims();
-#ifdef LAST_VICTIM_FIRST
-		if (last_victim != -1) {
-			// Find last_victim in field my_victims and swap it to the front
-			int i;
-			for (i = 0; i < my_partition->num_workers_rt-1; i++) {
-				if (my_victims[i] == last_victim) {
-					swap(&my_victims[i], &my_victims[0]);
-					break;
-				}
-			}
-		}
-#endif
 		copy_victims();
-#ifdef STEAL_LEAPFROG
+#ifdef STEAL_LASTVICTIM
+		SEND_REQ_WORKER(lastvictim(&steal_req), &steal_req);
+#elif defined STEAL_LEAPFROG
 		SEND_REQ_WORKER(leapfrog(&steal_req), &steal_req);
 #else
 		SEND_REQ_WORKER(next_victim(&steal_req), &steal_req);
@@ -1034,7 +1049,7 @@ void *schedule(UNUSED(void *args))
 		}
 #endif
 		timer_end(&timer_send_recv_tasks);
-#ifdef LAST_VICTIM_FIRST
+#ifdef STEAL_LASTVICTIM
 		last_victim = loot[1];
 		assert(last_victim != 1 && last_victim != ID);
 #endif
@@ -1123,7 +1138,7 @@ empty_local_queue:
 	}
 #endif
 	timer_end(&timer_send_recv_tasks);
-#ifdef LAST_VICTIM_FIRST
+#ifdef STEAL_LASTVICTIM
 	last_victim = loot[1];
 	assert(last_victim != 1 && last_victim != ID);
 #endif
@@ -1221,7 +1236,7 @@ void RT_force_future_channel(Channel *chan, void *data, unsigned int size)
 		}
 #endif
 		timer_end(&timer_send_recv_tasks);
-#ifdef LAST_VICTIM_FIRST
+#ifdef STEAL_LASTVICTIM
 		last_victim = loot[1];
 		assert(last_victim != 1 && last_victim != ID);
 #endif
@@ -1301,7 +1316,7 @@ void RT_taskwait(atomic_t *num_children)
 		}
 #endif
 		timer_end(&timer_send_recv_tasks);
-#ifdef LAST_VICTIM_FIRST
+#ifdef STEAL_LASTVICTIM
 		last_victim = loot[1];
 		assert(last_victim != 1 && last_victim != ID);
 #endif
