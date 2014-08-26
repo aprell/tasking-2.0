@@ -8,7 +8,7 @@
 
 #define TASK_SUCCESS 0
 #define TASK_ERROR_BASE 400
-#define TASK_DATA_SIZE 128
+#define TASK_DATA_SIZE (128 - sizeof(long))
 #define TASK_SIZE sizeof(Task)
 
 typedef struct task Task;
@@ -23,6 +23,8 @@ struct task {
 		struct task *next;
 	};
 	void (*fn)(void *);
+	int batch;
+	int victim;
 	bool is_loop;
 	long start, cur, end;
 	// Task body carrying user data
@@ -35,6 +37,9 @@ static inline Task *task_zero(Task *task)
 	task->prev = NULL;
 	task->next = NULL;
 	task->fn = NULL;
+
+	task->batch = 0;
+	task->victim = 0;
 
 	task->is_loop = false;
 	task->start = 0;
