@@ -606,6 +606,7 @@ static int loadbalance(void)
 	// Load balancing loop
 	for (;;) {
 		if (channel_receive(chan_manager[ID], &req, sizeof(req))) {
+#ifndef OPTIMIZE_BARRIER
 		// Right after a barrier, we must take extra measures to avoid
 		// premature quiescence detection. We need to filter out
 		// the old steal request from the master.
@@ -630,6 +631,7 @@ static int loadbalance(void)
 				}
 			}
 		}
+#endif
 
 		// Quiescence information out of date?
 		if (req.partition == my_partition->number && workers_q[req.pID] && !req.quiescent) {
@@ -638,6 +640,10 @@ static int loadbalance(void)
 			num_workers_q--;
 			quiescent = false;
 			notes++;
+#ifdef OPTIMIZE_BARRIER
+			if (after_barrier)
+				after_barrier = false;
+#endif
 			continue;
 		}
 		switch (quiescent) {
@@ -905,7 +911,17 @@ static void handle_steal_request(struct steal_request *req)
 		// Got own steal request
 		// Forget about it if we have more tasks than previously
 		if (deque_list_tl_num_tasks(deque) > REQ_THRESHOLD) {
+#ifdef OPTIMIZE_BARRIER
+			if (req->quiescent) {
+				assert(req->idle);
+				assert(req->pass == num_partitions);
+				assert(req->partition == my_partition->number);
+				req->quiescent = false;
+				SEND_REQ_MANAGER(req);
+			}
+#else
 			assert(!req->quiescent);
+#endif
 			assert(requested);
 			requested = false;
 			return;
@@ -1088,6 +1104,13 @@ int RT_schedule(void)
 	return 0;
 }
 
+#ifdef OPTIMIZE_BARRIER
+static void run_dummy(UNUSED(void *args))
+{
+	num_tasks_exec_worker--;
+}
+#endif
+
 int RT_barrier(void)
 {
 	WORKER return 0;
@@ -1156,6 +1179,28 @@ empty_local_queue:
 
 RT_barrier_exit:
 	assert(!channel_peek(chan_tasks[ID]));
+#ifdef OPTIMIZE_BARRIER
+	struct steal_request req;
+	while (!RECV_REQ(&req)) ;
+	assert(req.idle);
+	assert(req.pass == num_partitions);
+	assert(req.partition == my_partition->number);
+	req.quiescent = false;
+	SEND_REQ_MANAGER(&req);
+	if (req.ID == ID) {
+		assert(requested);
+		requested = false;
+	} else {
+		// Package up and send a dummy task
+		Task *dummy = task_alloc();
+		dummy->fn = (void (*)(void *))run_dummy;
+		dummy->batch = 1;
+#ifdef STEAL_LASTVICTIM
+		dummy->victim = ID;
+#endif
+		channel_send(chan_tasks[req.ID], (void *)&dummy, sizeof(Task *));
+	}
+#else
 	// Remove own steal request to reflect the fact that the computation continues
 	for (;;) {
 		struct steal_request req;
@@ -1173,6 +1218,7 @@ RT_barrier_exit:
 			decline_steal_request(&req);
 		}
 	}
+#endif // OPTIMIZE_BARRIER
 
 	return 0;
 }
