@@ -10,6 +10,9 @@
 #include "utest.h"
 UTEST_MAIN() {}
 #include "timer.h"
+#ifdef STEAL_BACKOFF
+#include "wtime.h"
+#endif
 
 #define MANAGER	if (is_manager)
 #define MAXNP 256
@@ -55,10 +58,19 @@ struct steal_request {
 	int pass;	   	// 0 <= pass <= num_partitions
 	int partition; 	// partition in which the steal request was initiated
 	int pID;		// ID of requesting worker within partition
+#ifdef STEAL_BACKOFF
+	int rounds;		// worker backs off after n rounds of failed stealing
+#endif
 	bool idle;		// ID has nothing left to work on?
 	bool quiescent;	// manager assumes ID is in a quiescent state?
 #ifdef STEAL_ADAPTIVE
 	bool stealhalf; // true ? attempt steal-half : attempt steal-one
+#endif
+#if defined STEAL_BACKOFF && defined STEAL_ADAPTIVE
+	char __[5];		// pad to cache line
+#elif defined STEAL_BACKOFF
+	char __[6];     // pad to cache line
+#elif defined STEAL_ADAPTIVE
 	char __[9];     // pad to cache line
 #else
 	char __[10];   	// pad to cache line
@@ -74,6 +86,11 @@ static inline void print_steal_req(struct steal_request *req)
 
 // .try == 0, .pass == 0, .idle == false, .quiescence == false
 static PRIVATE struct steal_request steal_req;
+
+#ifdef STEAL_BACKOFF
+// The last steal request before backing off
+static PRIVATE struct steal_request last_steal_req;
+#endif
 
 // A worker can have only one outstanding steal request
 static PRIVATE bool requested;
@@ -857,6 +874,47 @@ static inline void send_steal_request(bool idle)
 	}
 }
 
+#ifdef STEAL_BACKOFF
+
+#define STEAL_BACKOFF_BASE 100
+#define STEAL_BACKOFF_MULTIPLIER 2
+#define STEAL_BACKOFF_ROUNDS 1
+
+static PRIVATE int steal_backoff_usec = STEAL_BACKOFF_BASE;
+static PRIVATE double steal_backoff_intvl_start;
+static PRIVATE bool steal_backoff_waiting;
+static PRIVATE unsigned int steal_backoffs;
+PRIVATE unsigned int requests_resent;
+
+// Resend steal request after waiting steal_backoff_usec microseconds
+static inline void resend_steal_request(void)
+{
+	assert(requested);
+	assert(steal_backoff_waiting);
+	assert(last_steal_req.idle);
+	assert(last_steal_req.quiescent);
+	last_steal_req.try = 0;
+	last_steal_req.rounds = 0;
+#ifdef STEAL_RANDOM
+	shuffle_victims();
+	copy_victims();
+#ifdef STEAL_LASTVICTIM
+	SEND_REQ_WORKER(lastvictim(&last_steal_req), &last_steal_req);
+#elif defined STEAL_LEAPFROG
+	SEND_REQ_WORKER(leapfrog(&last_steal_req), &last_steal_req);
+#else
+	SEND_REQ_WORKER(next_victim(&last_steal_req), &last_steal_req);
+#endif
+#else // STEAL_RANDOM_RR
+	SEND_REQ_WORKER(random_victim(&last_steal_req), &last_steal_req);
+#endif
+	steal_backoff_waiting = false;
+	steal_backoff_usec *= STEAL_BACKOFF_MULTIPLIER;
+	requests_resent++;
+	requests_sent++;
+}
+#endif // STEAL_BACKOFF
+
 // Got a steal request that can't be served?
 // Pass it on to a different victim, or send it back to manager to prevent circling
 static inline void decline_steal_request(struct steal_request *req)
@@ -870,7 +928,17 @@ static inline void decline_steal_request(struct steal_request *req)
 		SEND_REQ_WORKER(next_victim(req), req);
 	} else {
 		assert(ID == req->ID);
+#ifdef STEAL_BACKOFF
+		if (ID != MASTER_ID && req->quiescent && ++req->rounds == STEAL_BACKOFF_ROUNDS) {
+			last_steal_req = *req;
+			steal_backoff_intvl_start = Wtime_usec();
+			steal_backoff_waiting = true;
+			steal_backoffs++;
+		} else if (ID != MASTER_ID && req->quiescent) {
+#else
+
 		if (ID != MASTER_ID && req->quiescent) {
+#endif
 			// Don't bother manager; we are quiescent anyway
 			req->try = 0;
 #ifdef STEAL_RANDOM
@@ -1046,6 +1114,12 @@ void *schedule(UNUSED(void *args))
 			assert(deque_list_tl_empty(deque));
 			assert(requested);
 			decline_all_steal_requests();
+#ifdef STEAL_BACKOFF
+			if (steal_backoff_waiting && (Wtime_usec() - steal_backoff_intvl_start >= steal_backoff_usec)) {
+				resend_steal_request();
+				assert(!steal_backoff_waiting);
+			}
+#endif
 			if (tasking_done()) {
 				timer_end(&timer_idle);
 				goto schedule_exit;
@@ -1070,6 +1144,9 @@ void *schedule(UNUSED(void *args))
 #endif
 		timer_end(&timer_send_recv_tasks);
 		requested = false;
+#ifdef STEAL_BACKOFF
+		steal_backoff_usec = STEAL_BACKOFF_BASE;
+#endif
 		//TODO Figure out at which points updates are reasonable
 		//UPDATE();
 		timer_start(&timer_enq_deq_tasks);

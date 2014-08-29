@@ -124,6 +124,9 @@ extern PRIVATE mytimer_t timer_idle;
 
 extern PRIVATE unsigned int requests_sent, requests_handled;
 extern PRIVATE unsigned int requests_declined, tasks_sent;
+#ifdef STEAL_BACKOFF
+extern PRIVATE unsigned int requests_resent;
+#endif
 
 int tasking_internal_statistics(void)
 {
@@ -140,6 +143,9 @@ int tasking_internal_statistics(void)
 	printf("Worker %d: %u steal requests handled\n", ID, requests_handled);
 	printf("Worker %d: %u steal requests declined\n", ID, requests_declined);
 	printf("Worker %d: %u tasks sent\n", ID, tasks_sent);
+#ifdef STEAL_BACKOFF
+	printf("Worker %d: %u steal requests resent\n", ID, requests_resent);
+#endif
 
 #ifndef NTIME
 	printf("Worker %d, %u, %.2lf, "
