@@ -931,6 +931,11 @@ static inline void decline_steal_request(struct steal_request *req)
 #ifdef STEAL_BACKOFF
 		if (ID != MASTER_ID && req->quiescent && ++req->rounds == STEAL_BACKOFF_ROUNDS) {
 			last_steal_req = *req;
+#ifdef STEAL_ADAPTIVE
+			stealhalf = false;
+			last_steal_req.stealhalf = false;
+			flat_tasks_in_series = 0;
+#endif
 			steal_backoff_intvl_start = Wtime_usec();
 			steal_backoff_waiting = true;
 			steal_backoffs++;
