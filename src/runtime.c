@@ -301,7 +301,9 @@ int RT_init(void)
 	chan_tasks[ID] = channel_alloc(sizeof(Task *), 2, SPSC);
 
 	MANAGER {
-		chan_manager[ID] = channel_alloc(sizeof(struct steal_request), num_workers, MPSC);
+		// Unprocessed update message followed by new steal request
+		// => up to two messages per worker
+		chan_manager[ID] = channel_alloc(sizeof(struct steal_request), num_workers * 2, MPSC);
 		chan_quiescence[ID] = channel_alloc(sizeof(struct token), 0, SPSC);
 	}
 
@@ -533,7 +535,7 @@ do { \
 	/* Problematic if the target worker has already left scheduling */\
 	/* ==> send to full channel will block the sender */\
 	while (!channel_send(chan, req, sizeof(*(req)))) { \
-		if (++__nfail % 100 == 0) { \
+		if (++__nfail % 3 == 0) { \
 			LOG("*** Worker %d: blocked on channel send\n", ID); \
 			assert(false && "Check channel capacities!"); \
 		} \
