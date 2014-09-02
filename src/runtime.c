@@ -260,7 +260,7 @@ static int ws_init(void)
 #ifdef __MIC__
 #define CPUFREQ 1.053 // in GHz
 #else
-#define CPUFREQ 2.1 // in GHZ
+#define CPUFREQ 2.1 // in GHz
 #endif
 // To measure the cost of different parts of the runtime
 PRIVATE mytimer_t timer_run_tasks;
