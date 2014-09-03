@@ -349,22 +349,10 @@ bool cilkmerge(ELM *low1, ELM *high1, ELM *low2, ELM *high2, ELM *lowdest)
       */
      *(lowdest + lowsize + 1) = *split1;
 
-	 chan a, b;
-	 bool ret;
+	 future merge_low  = __ASYNC(cilkmerge, low1, split1 - 1, low2, split2, lowdest);
+	 future merge_high = __ASYNC(cilkmerge, split1 + 1, high1, split2 + 1, high2, lowdest + lowsize + 2);
 
-	 chanref_set(&a, channel_alloc(sizeof(ret), 0, SPSC));
-     ASYNC(cilkmerge, low1, split1 - 1, low2, split2, lowdest, a);
-
-	 chanref_set(&b, channel_alloc(sizeof(ret), 0, SPSC));
-     ASYNC(cilkmerge, split1 + 1, high1, split2 + 1, high2, lowdest + lowsize + 2, b);
-
-	 RT_force_future_channel(chanref_get(b), &ret, sizeof(ret));
-	 RT_force_future_channel(chanref_get(a), &ret, sizeof(ret));
-
-	 channel_free(chanref_get(a));
-	 channel_free(chanref_get(b));
-
-     return true;
+     return __AWAIT(merge_high, bool) && __AWAIT(merge_low, bool);
 }
 
 bool cilksort(ELM *, ELM *, long);
@@ -397,36 +385,25 @@ bool cilksort(ELM *low, ELM *tmp, long size)
      D = C + quarter;
      tmpD = tmpC + quarter;
 
-	 chan a, b, c, d;
-	 bool ret;
+     future q1 = __ASYNC(cilksort, A, tmpA, quarter);
+     future q2 = __ASYNC(cilksort, B, tmpB, quarter);
+     future q3 = __ASYNC(cilksort, C, tmpC, quarter);
+     future q4 = __ASYNC(cilksort, D, tmpD, size - 3 * quarter);
 
-	 chanref_set(&a, channel_alloc(sizeof(ret), 0, SPSC));
-     ASYNC(cilksort, A, tmpA, quarter, a);
+	 __AWAIT(q4, bool);
+	 __AWAIT(q3, bool);
+	 __AWAIT(q2, bool);
+	 __AWAIT(q1, bool);
 
-	 chanref_set(&b, channel_alloc(sizeof(ret), 0, SPSC));
-     ASYNC(cilksort, B, tmpB, quarter, b);
+     future m1 = __ASYNC(cilkmerge, A, A + quarter - 1, B, B + quarter - 1, tmpA);
+     future m2 = __ASYNC(cilkmerge, C, C + quarter - 1, D, low + size - 1, tmpC);
 
-	 chanref_set(&c, channel_alloc(sizeof(ret), 0, SPSC));
-     ASYNC(cilksort, C, tmpC, quarter, c);
+	 __AWAIT(m2, bool);
+	 __AWAIT(m1, bool);
 
-	 chanref_set(&d, channel_alloc(sizeof(ret), 0, SPSC));
-     ASYNC(cilksort, D, tmpD, size - 3 * quarter, d);
+     future m = __ASYNC(cilkmerge, tmpA, tmpC - 1, tmpC, tmpA + size - 1, A);
 
-	 RT_force_future_channel(chanref_get(d), &ret, sizeof(ret));
-	 RT_force_future_channel(chanref_get(c), &ret, sizeof(ret));
-	 RT_force_future_channel(chanref_get(b), &ret, sizeof(ret));
-	 RT_force_future_channel(chanref_get(a), &ret, sizeof(ret));
-
-     ASYNC(cilkmerge, A, A + quarter - 1, B, B + quarter - 1, tmpA, a);
-     ASYNC(cilkmerge, C, C + quarter - 1, D, low + size - 1, tmpC, b);
-
-	 RT_force_future_channel(chanref_get(b), &ret, sizeof(ret));
-	 RT_force_future_channel(chanref_get(a), &ret, sizeof(ret));
-
-     ASYNC(cilkmerge, tmpA, tmpC - 1, tmpC, tmpA + size - 1, A, a);
-	 RT_force_future_channel(chanref_get(a), &ret, sizeof(ret));
-
-	 return true;
+	 return __AWAIT(m, bool);
 }
 
 void scramble_array(ELM *arr, unsigned long size)
