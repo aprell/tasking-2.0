@@ -482,7 +482,7 @@ static inline int lastvictim(struct steal_request *req)
 	int victim;
 
 	if (req->try < my_partition->num_workers_rt-1) {
-		if (last_victim != -1 && last_victim != req->ID) {
+		if (last_victim != -1 && last_victim != req->ID && LIKELY_HAS_TASKS(last_victim)) {
 			victim = last_victim;
 			assert(victim != my_partition->manager);
 			return victim;
@@ -507,7 +507,7 @@ static inline int leapfrog(struct steal_request *req)
 	int victim;
 
 	if (req->try < my_partition->num_workers_rt-1) {
-		if (last_thief != -1 && last_thief != req->ID) {
+		if (last_thief != -1 && last_thief != req->ID && LIKELY_HAS_TASKS(last_thief)) {
 			victim = last_thief;
 			assert(victim != my_partition->manager);
 			return victim;
