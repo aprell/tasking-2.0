@@ -82,6 +82,7 @@ int nqueens_seq(int n, int j, char *a)
 
 int nqueens_async(int, int, char *);
 
+FUTURE_DECL_FREELIST(int);
 FUTURE_DECL(int, nqueens_async, int n; int j; char *a, n, j, a);
 
 int nqueens_async(int n, int j, char *a)
@@ -203,7 +204,7 @@ int main(int argc, char *argv[])
 	TASKING_INIT(&argc, &argv);
 
 	start = Wtime_msec();
-	count = nqueens_spawn(n, 0, alloca(n * sizeof(char)));
+	count = nqueens_async(n, 0, alloca(n * sizeof(char)));
 	end = Wtime_msec();
 	verify_queens(n, count);
 

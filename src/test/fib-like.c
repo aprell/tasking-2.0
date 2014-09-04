@@ -58,6 +58,7 @@ int fib_like_seq(int n)
 
 int fib_like(int);
 
+FUTURE_DECL_FREELIST(int);
 FUTURE_DECL(int, fib_like, int n, n);
 
 // Taskwait based on channel operations

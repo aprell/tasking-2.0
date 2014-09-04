@@ -133,8 +133,49 @@ typedef chan future;
 
 #define new_future(f) new_##f##_future()
 
+#ifdef CACHE_FUTURES
+#ifndef FUTURE_FREELIST_SIZE
+#define FUTURE_FREELIST_SIZE 100
+#endif
+#define FUTURE_DECL_FREELIST(type) \
+static PRIVATE unsigned int __future_##type##_freelist_items = 0; \
+static PRIVATE future __future_##type##_freelist[FUTURE_FREELIST_SIZE]
+#else
+#define FUTURE_DECL_FREELIST(type) // empty
+#endif // CACHE_FUTURES
+
 /* Async functions with return values are basically futures
  */
+#ifdef CACHE_FUTURES
+#define FUTURE_DECL(ret, fname, decls, args...) \
+struct fname##_task_data { \
+	decls; \
+	future __f; \
+}; \
+static inline future new_##fname##_future(void) \
+{ \
+	future f; \
+	if (__future_##ret##_freelist_items > 0) { \
+		return __future_##ret##_freelist[--__future_##ret##_freelist_items]; \
+	} \
+	chanref_set(&f, channel_alloc(sizeof(ret), 0, SPSC)); \
+	return f; \
+} \
+void fname##_task_func(struct fname##_task_data *__d) \
+{ \
+	Task *this = get_current_task(); \
+	assert(!is_root_task(this)); \
+	assert((struct fname##_task_data *)this->data == __d); \
+	\
+	UNPACK(__d, args, __f); \
+	timer_end(&timer_enq_deq_tasks); \
+	timer_start(&timer_run_tasks); \
+	ret __tmp = fname(args); \
+	timer_end(&timer_run_tasks); \
+	timer_start(&timer_enq_deq_tasks); \
+	channel_send(chanref_get(__f), &__tmp, sizeof(__tmp)); \
+}
+#else
 #define FUTURE_DECL(ret, fname, decls, args...) \
 struct fname##_task_data { \
 	decls; \
@@ -160,6 +201,7 @@ void fname##_task_func(struct fname##_task_data *__d) \
 	timer_start(&timer_enq_deq_tasks); \
 	channel_send(chanref_get(__f), &__tmp, sizeof(__tmp)); \
 }
+#endif // CACHE_FUTURES
 
 // Cilk-style fork/join
 #define TASK_DECL(ret, fname, decls, args...) \
@@ -258,6 +300,19 @@ extern void RT_force_future_channel(Channel *, void *, unsigned int);
 
 // Returns the result of evaluating future f
 // type is used to declare a temporary variable
+#ifdef CACHE_FUTURES
+#define __AWAIT(f, type) \
+({ \
+	type __tmp; \
+	RT_force_future_channel(chanref_get(f), &__tmp, sizeof(__tmp)); \
+	if (__future_##type##_freelist_items < FUTURE_FREELIST_SIZE) { \
+		__future_##type##_freelist[__future_##type##_freelist_items++] = (f); \
+	} else { \
+		channel_free(chanref_get(f)); \
+	} \
+	__tmp; \
+})
+#else
 #define __AWAIT(f, type) \
 ({ \
 	type __tmp; \
@@ -265,6 +320,7 @@ extern void RT_force_future_channel(Channel *, void *, unsigned int);
 	channel_free(chanref_get(f)); \
 	__tmp; \
 })
+#endif // CACHE_FUTURES
 
 extern void RT_taskwait(atomic_t *num_children);
 

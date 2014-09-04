@@ -293,6 +293,7 @@ ELM *binsplit(ELM val, ELM *low, ELM *high)
 
 bool cilkmerge(ELM *, ELM *, ELM *, ELM *, ELM *);
 
+FUTURE_DECL_FREELIST(bool);
 FUTURE_DECL(bool, cilkmerge, ELM *low1; ELM *high1; ELM *low2; ELM *high2; ELM *lowdest,
 		    low1, high1, low2, high2, lowdest);
 

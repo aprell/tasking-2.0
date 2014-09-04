@@ -73,6 +73,7 @@ bool quicksort_seq(int left, int right)
 
 bool quicksort(int, int);
 
+FUTURE_DECL_FREELIST(bool);
 FUTURE_DECL(bool, quicksort, int left; int right, left, right);
 
 bool quicksort(int left, int right)
