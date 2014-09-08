@@ -70,8 +70,14 @@ static inline double timer_elapsed(mytimer_t *timer, int opt)
 	default:
 		break;
 	}
-	
+
 	return elapsed;
+}
+
+// Returns elapsed time in number of clock cycles
+static inline unsigned long long timer_cycles(mytimer_t *timer)
+{
+	return timer->elapsed;
 }
 
 #endif // NTIME
