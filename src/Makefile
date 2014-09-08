@@ -4,6 +4,7 @@ CPPFLAGS += -DPLATFORM_SHM -DCHAN_SHM -DNTIME
 CPPFLAGS += -DSTEAL_RANDOM
 #CPPFLAGS += -DSTEAL_HALF
 #CPPFLAGS += -DVICTIM_CHECK
+CPPFLAGS += -DCPUFREQ=$(cpu_freq_ghz)
 
 CFLAGS += -pthread
 
@@ -92,3 +93,13 @@ libtasking.a: $(libtasking_SRCS:.c=.o)
 .PHONY: veryclean
 veryclean:
 	$(MAKE) clean && rm -f ../lib/*.a
+
+#//// EXPERIMENTAL /////////////////////////////////////////////////////////#
+
+# Determine maximum CPU clock frequency in GHz
+cpu_freq := /sys/devices/system/cpu/cpu0/cpufreq
+ifeq ($(wildcard $(cpu_freq)),)
+  $(warning Directory $(cpu_freq) does not exist)
+endif
+cpu_freq_khz := $(shell cat $(cpu_freq)/scaling_max_freq)
+cpu_freq_ghz := $(shell echo "scale=5; $(cpu_freq_khz)/10^6" | bc)
