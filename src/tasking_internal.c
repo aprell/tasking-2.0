@@ -142,25 +142,29 @@ int tasking_internal_statistics(void)
 	printf("Worker %d: %u steal requests sent\n", ID, requests_sent);
 	printf("Worker %d: %u steal requests handled\n", ID, requests_handled);
 	printf("Worker %d: %u steal requests declined\n", ID, requests_declined);
+	printf("Worker %d: %u tasks executed\n", ID, num_tasks_exec_worker);
 	printf("Worker %d: %u tasks sent\n", ID, tasks_sent);
 #ifdef STEAL_BACKOFF
 	printf("Worker %d: %u steal requests resent\n", ID, requests_resent);
 #endif
 
 #ifndef NTIME
-	printf("Worker %d, %u, %.2lf, "
-			"%.2lf, "
-			"%.2lf, "
-			"%.2lf, "
-			"%.2lf\n",
-			ID, num_tasks_exec_worker,
-			timer_elapsed(&timer_run_tasks, timer_ms),
-			timer_elapsed(&timer_send_recv_sreqs, timer_ms),
-			timer_elapsed(&timer_send_recv_tasks, timer_ms),
-			timer_elapsed(&timer_enq_deq_tasks, timer_ms),
-			timer_elapsed(&timer_idle, timer_ms));
-#else
-	printf("Worker %d: %u tasks executed\n", ID, num_tasks_exec_worker);
+	// Parsable format
+	// The first value should make it easy to grep for these lines, e.g. with
+	// ./a.out | grep Timer | cut -d, -f2-
+	// Worker ID, Task, Send/Recv Req, Send/Recv Task, Enq/Deq Task, Idle
+	printf("Timer,%d,"
+		   "%.3lf,"
+		   "%.3lf,"
+		   "%.3lf,"
+		   "%.3lf,"
+		   "%.3lf\n",
+		   ID,
+		   timer_elapsed(&timer_run_tasks,       timer_us),
+		   timer_elapsed(&timer_send_recv_sreqs, timer_us),
+		   timer_elapsed(&timer_send_recv_tasks, timer_us),
+		   timer_elapsed(&timer_enq_deq_tasks,   timer_us),
+		   timer_elapsed(&timer_idle,            timer_us));
 #endif
 
 	fflush(stdout);
