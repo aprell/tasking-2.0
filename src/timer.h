@@ -7,8 +7,11 @@
 #define timer_start(x)		((void)0)
 #define timer_end(x)		((void)0)
 #define timer_elapsed(...) 	((void)0)
+#define timers_elapsed(...) ((void)0)
 
 #else
+
+#include <stdarg.h>
 
 #define CYCLES_PER_SEC(t)	((t) * 1e9)
 #define CYCLES_PER_MSEC(t)	((t) * 1e6)
@@ -70,6 +73,26 @@ static inline double timer_elapsed(mytimer_t *timer, int opt)
 	default:
 		break;
 	}
+
+	return elapsed;
+}
+
+// Collects elapsed time from a variable number of timers
+// The list of arguments is expected to end with NULL
+static inline double timers_elapsed(mytimer_t *timer, int opt, ...)
+{
+	double elapsed;
+	va_list args;
+	mytimer_t *t;
+
+	va_start(args, opt);
+
+	elapsed = timer_elapsed(timer, opt);
+	while ((t = va_arg(args, mytimer_t *)) != NULL) {
+		elapsed += timer_elapsed(t, opt);
+	}
+
+	va_end(args);
 
 	return elapsed;
 }

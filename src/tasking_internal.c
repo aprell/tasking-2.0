@@ -152,19 +152,19 @@ int tasking_internal_statistics(void)
 	// Parsable format
 	// The first value should make it easy to grep for these lines, e.g. with
 	// ./a.out | grep Timer | cut -d, -f2-
-	// Worker ID, Task, Send/Recv Req, Send/Recv Task, Enq/Deq Task, Idle
-	printf("Timer,%d,"
-		   "%.3lf,"
-		   "%.3lf,"
-		   "%.3lf,"
-		   "%.3lf,"
-		   "%.3lf\n",
-		   ID,
-		   timer_elapsed(&timer_run_tasks,       timer_us),
-		   timer_elapsed(&timer_send_recv_sreqs, timer_us),
-		   timer_elapsed(&timer_send_recv_tasks, timer_us),
-		   timer_elapsed(&timer_enq_deq_tasks,   timer_us),
-		   timer_elapsed(&timer_idle,            timer_us));
+	// Worker ID, Task, Send/Recv Req, Send/Recv Task, Enq/Deq Task, Idle, Total
+	printf("Timer,%d,%.3lf,%.3lf,%.3lf,%.3lf,%.3lf,%.3lf\n", ID,
+		   timer_elapsed  (&timer_run_tasks,       timer_us),
+		   timer_elapsed  (&timer_send_recv_sreqs, timer_us),
+		   timer_elapsed  (&timer_send_recv_tasks, timer_us),
+		   timer_elapsed  (&timer_enq_deq_tasks,   timer_us),
+		   timer_elapsed  (&timer_idle,            timer_us),
+		   timers_elapsed (&timer_run_tasks,       timer_us,
+			               &timer_send_recv_sreqs,
+						   &timer_send_recv_tasks,
+						   &timer_enq_deq_tasks,
+						   &timer_idle,
+						   NULL));
 #endif
 
 	fflush(stdout);
