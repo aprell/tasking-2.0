@@ -76,6 +76,27 @@ int fib_like(int n)
 	return __AWAIT(x, int) + y + 1;
 }
 
+int fib_like_spawn(int);
+
+TASK_DECL(int, fib_like_spawn, int n, n);
+
+// Taskwait based on channel operations
+int fib_like_spawn(int n)
+{
+	atomic_t num_children = 0;
+	int x, y;
+
+	if (n < 2)
+		return compute(TASK_GRANULARITY);
+
+	SPAWN(fib_like_spawn, n-1, &x);
+	y = fib_like_spawn(n-2);
+
+	SYNC;
+
+	return x + y + 1;
+}
+
 static void verify_result(int n, int res)
 {
 	static int ntasks[44] = {

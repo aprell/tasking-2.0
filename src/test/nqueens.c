@@ -80,12 +80,12 @@ int nqueens_seq(int n, int j, char *a)
 	return count;
 }
 
-int nqueens_async(int, int, char *);
+int nqueens(int, int, char *);
 
 FUTURE_DECL_FREELIST(int);
-FUTURE_DECL(int, nqueens_async, int n; int j; char *a, n, j, a);
+FUTURE_DECL(int, nqueens, int n; int j; char *a, n, j, a);
 
-int nqueens_async(int n, int j, char *a)
+int nqueens(int n, int j, char *a)
 {
 	int count = 0, i;
 	future local_counts[n];
@@ -103,7 +103,7 @@ int nqueens_async(int n, int j, char *a)
 		memcpy(b, a, j * sizeof(char));
 		b[j] = (char)i;
 		if (ok(j + 1, b)) {
-			local_counts[i] = __ASYNC(nqueens_async, n, j + 1, b);
+			local_counts[i] = __ASYNC(nqueens, n, j + 1, b);
 		}
 	}
 
@@ -204,7 +204,7 @@ int main(int argc, char *argv[])
 	TASKING_INIT(&argc, &argv);
 
 	start = Wtime_msec();
-	count = nqueens_async(n, 0, alloca(n * sizeof(char)));
+	count = nqueens(n, 0, alloca(n * sizeof(char)));
 	end = Wtime_msec();
 	verify_queens(n, count);
 
