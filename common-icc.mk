@@ -1,8 +1,8 @@
 # Common definitions
 CC = icc
 CPPFLAGS += -D_GNU_SOURCE
-CFLAGS += -O2 -Wall -Wcheck $(DISABLE) -mmic $(INCLUDE)
-LDFLAGS += -mmic
+CFLAGS += -O2 -Wall -Wcheck $(DISABLE) $(INCLUDE)
+LDFLAGS +=
 
 # icc generates lots of remarks and warnings, especially when compiling UTS
 # Disable the following:
