@@ -774,7 +774,7 @@ static int loadbalance(void)
 							// Assert global quiescence
 							// Shake hands with master worker
 							channel_send(chan_barrier, &quiescent, sizeof(quiescent));
-							while (channel_peek(chan_barrier)) ;
+							while (channel_peek(chan_barrier) && !tasking_done()) ;
 							after_barrier = true;
 						}
 #ifdef STEAL_RANDOM_RR
@@ -800,7 +800,23 @@ static int loadbalance(void)
 					requests_declined++;
 				}
 				break;
-		}}
+		}} else {
+			switch (quiescent) {
+			case false:
+				break;
+			case true:
+				if (!global_quiescence()) {
+					quiescent = false;
+				} else {
+					if (my_partition->number == 0 && !after_barrier) {
+						channel_send(chan_barrier, &quiescent, sizeof(quiescent));
+						while (channel_peek(chan_barrier) && !tasking_done()) ;
+						after_barrier = true;
+					}
+				}
+				break;
+			}
+		}
 		if (tasking_done())
 			break;
 		if (num_workers_q == my_partition->num_workers_rt-1 && !quiescent) {
@@ -808,11 +824,13 @@ static int loadbalance(void)
 			quiescent = true;
 		}
 		// Token passing for global quiescence detection
-		if (channel_receive(chan_quiescence[ID], &tok, sizeof(tok))) {
-			assert(tok.val >= 1 && tok.val <= num_partitions);
-			if (quiescent)
-				tok.val++;
-			SEND_QSC_MSG(&tok);
+		if (num_partitions > 1) {
+			if (channel_receive(chan_quiescence[ID], &tok, sizeof(tok))) {
+				assert(tok.val >= 1 && tok.val <= num_partitions);
+				if (quiescent)
+					tok.val++;
+				SEND_QSC_MSG(&tok);
+			}
 		}
 		if (tasking_done())
 			break;
