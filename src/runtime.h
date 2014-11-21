@@ -56,6 +56,14 @@ static void PARTITION_SET(void) \
 	} \
 } \
 
+// Requires that PARTITION_INIT() was called
+#define PARTITION_RESET() \
+	num_partitions = 0; \
+	my_partition = NULL; \
+	is_manager = false; \
+	next_manager = 0; \
+	next_worker = 0;
+
 // Create a partition of n workers with identifier id
 // For example:
 // PARTITION_CREATE(abc, 4) = { 2, 4, 6, 8 };

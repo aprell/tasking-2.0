@@ -318,9 +318,23 @@ int RT_init(void)
 		}
 	}
 
-	steal_req.ID = ID;
-	steal_req.partition = my_partition->number;
-	steal_req.pID = pID;
+	steal_req = (struct steal_request){
+		.ID = ID,
+		.try = 0,
+		.pass = 0,
+		.partition = my_partition->number,
+		.pID = pID,
+#ifdef STEAL_BACKOFF
+		.rounds = 0,
+#endif
+		.idle = false,
+		.quiescent = false
+#ifdef STEAL_ADAPTIVE
+		, .stealhalf = false
+#endif
+	};
+
+	requested = false;
 
 	timer_new(&timer_run_tasks, CPUFREQ);
 	timer_new(&timer_enq_deq_tasks, CPUFREQ);
@@ -350,6 +364,8 @@ int RT_exit(void)
 	MASTER {
 		channel_free(chan_barrier);
 	}
+
+	PARTITION_RESET();
 
 	return 0;
 }

@@ -78,6 +78,7 @@ int tasking_internal_init(int *argc UNUSED, char ***argv UNUSED)
 	ID = IDs[0] = 0;
 
 	// Bind master thread to CPU 0
+	// XXX Calling this more than once results in a significant slowdown! Why?
 	set_thread_affinity(0);
 
 	// Create num_workers-1 worker threads
