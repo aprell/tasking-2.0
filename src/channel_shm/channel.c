@@ -115,6 +115,9 @@ void channel_free(Channel *chan)
 	if (chan->buffer)
 		free(chan->buffer);
 
+	pthread_mutex_destroy(&chan->head_lock);
+	pthread_mutex_destroy(&chan->tail_lock);
+
 	free(chan);
 }
 
