@@ -2,11 +2,11 @@
 #include <stdlib.h>
 #include <assert.h>
 #include <unistd.h>
+#include <pthread.h>
 #include "tasking.h"
 #include "async.h"
 #include "wtime.h"
 
-#define N 100
 #define TASK_GRANULARITY 10 // in microseconds
 
 void consume(int usec)
@@ -27,36 +27,86 @@ void consume(int usec)
 		}
 		//(void)RT_check_for_steal_requests();
 	}
-	//printf("Elapsed: %.2lfus\n", elapsed);
 }
 
 ASYNC_DECL(consume, int usec, usec);
 
-int main(int argc, char *argv[])
+#define N 1000
+
+// Measures termination detection latency when all workers are idle
+void time_td_delay_min(int argc, char *argv[])
 {
+	double start, end;
+	int i;
+
 	TASKING_INIT(&argc, &argv);
 
-	int i;
+	TASKING_BARRIER();
+
+	start = Wtime_usec();
+
 	for (i = 0; i < N; i++) {
-		ASYNC(consume, TASK_GRANULARITY);
+		TASKING_BARRIER();
 	}
 
-	TASKING_BARRIER();
-	TASKING_BARRIER();
-	TASKING_BARRIER();
+	end = Wtime_usec();
 
-	sleep(3);
-	//consume(5000000);
+	printf("Elapsed wall time: %.2lf us\n", (end - start) / N);
 
-	ASYNC(consume, TASK_GRANULARITY*10000);
-	ASYNC(consume, TASK_GRANULARITY*10000);
-	ASYNC(consume, TASK_GRANULARITY*10000);
-
-	TASKING_BARRIER();
-	TASKING_BARRIER();
-	TASKING_BARRIER();
-	TASKING_BARRIER();
 	TASKING_EXIT();
+}
+
+pthread_barrier_t td_sync;
+
+// Measures termination detection latency when all workers are busy
+void time_td_delay_max(int argc, char *argv[])
+{
+	double start, end;
+	int i;
+
+	TASKING_INIT(&argc, &argv);
+
+	if (num_workers > 1) {
+		pthread_barrier_wait(&td_sync);
+	}
+
+	start = Wtime_usec();
+
+	TASKING_BARRIER();
+
+	end = Wtime_usec();
+
+	printf("Elapsed wall time: %.2lf us\n", end - start);
+
+	TASKING_EXIT();
+
+	if (num_workers > 1) {
+		pthread_barrier_destroy(&td_sync);
+	}
+}
+
+extern double td_start, td_end;
+extern double td_elapsed;
+
+// Measures additional latency when termination detection serves as a barrier
+void td_additional_delay(int argc, char *argv[])
+{
+	int i;
+
+	TASKING_INIT(&argc, &argv);
+
+	for (i = 0; i < N; i++) {
+		TASKING_BARRIER();
+	}
+
+	printf("Elapsed wall time: %.2lf us\n", td_elapsed / N);
+
+	TASKING_EXIT();
+}
+
+int main(int argc, char *argv[])
+{
+	time_td_delay_max(argc, argv);
 
 	return 0;
 }
