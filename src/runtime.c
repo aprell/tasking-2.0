@@ -1370,7 +1370,10 @@ void RT_force_future_channel(Channel *chan, void *data, unsigned int size)
 		timer_end(&timer_send_recv_sreqs);
 		timer_start(&timer_idle);
 		while (!channel_receive(chan_tasks[ID], (void *)&task, sizeof(Task *))) {
-			assert(requested);
+			// We might inadvertently remove our own steal request in
+			// handle_steal_request, so:
+			if (!requested)
+				send_steal_request(false);
 			timer_end(&timer_idle);
 			// Check if someone requested to steal from us
 			while (RECV_REQ(&req))
