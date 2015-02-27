@@ -128,6 +128,9 @@ extern PRIVATE unsigned int requests_declined, tasks_sent;
 #ifdef STEAL_BACKOFF
 extern PRIVATE unsigned int requests_resent;
 #endif
+#ifdef STEAL_ADAPTIVE
+extern PRIVATE unsigned int requests_steal_one, requests_steal_half;
+#endif
 
 int tasking_internal_statistics(void)
 {
@@ -147,6 +150,15 @@ int tasking_internal_statistics(void)
 	printf("Worker %d: %u tasks sent\n", ID, tasks_sent);
 #ifdef STEAL_BACKOFF
 	printf("Worker %d: %u steal requests resent\n", ID, requests_resent);
+#endif
+#ifdef STEAL_ADAPTIVE
+	assert(requests_steal_one + requests_steal_half == requests_sent);
+	printf("Worker %d: %.2f %% steal-one\n", ID, requests_sent > 0
+			? ((double)requests_steal_one/requests_sent) * 100
+			: 0);
+	printf("Worker %d: %.2f %% steal-half\n", ID, requests_sent > 0
+			? ((double)requests_steal_half/requests_sent) * 100
+			: 0);
 #endif
 
 #ifndef NTIME

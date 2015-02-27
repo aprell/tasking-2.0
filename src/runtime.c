@@ -842,12 +842,14 @@ static int loadbalance(void)
 }
 
 #ifdef STEAL_ADAPTIVE
-// Switch from steal-one to steal-half after executing STEAL_HALF_THRESHOLD
-// flat tasks (tasks that don't create child tasks) in series.
-// Switch back to steal-one as soon as we create the next child task.
-#define STEAL_HALF_THRESHOLD 10
-static PRIVATE unsigned int flat_tasks_in_series;
+// Switch from steal-one to steal-half after stealing and running
+// STEAL_HALF_THRESHOLD flat tasks (tasks that don't create child tasks) in
+// series. Switch back to steal-one when a stolen task creates a child task,
+// or if steal-half returns a single task.
+#define STEAL_HALF_THRESHOLD 25
+static PRIVATE unsigned int steals_in_series;
 static PRIVATE bool stealhalf;
+PRIVATE unsigned int requests_steal_one, requests_steal_half;
 #endif
 
 // Send steal request when number of local tasks <= REQ_THRESHOLD
@@ -865,7 +867,7 @@ static inline void UPDATE(void)
 
 	if (deque_list_tl_num_tasks(deque) <= REQ_THRESHOLD) {
 #ifdef STEAL_ADAPTIVE
-		if (!stealhalf && flat_tasks_in_series >= STEAL_HALF_THRESHOLD) {
+		if (!stealhalf && steals_in_series >= STEAL_HALF_THRESHOLD) {
 			//LOG("Worker %d switches to steal-half\n", ID);
 			stealhalf = true;
 		}
@@ -902,6 +904,9 @@ static inline void send_steal_request(bool idle)
 #endif
 		requested = true;
 		requests_sent++;
+#ifdef STEAL_ADAPTIVE
+		stealhalf == true ?  requests_steal_half++ : requests_steal_one++;
+#endif
 	}
 }
 
@@ -943,6 +948,9 @@ static inline void resend_steal_request(void)
 	steal_backoff_usec *= STEAL_BACKOFF_MULTIPLIER;
 	requests_resent++;
 	requests_sent++;
+#ifdef STEAL_ADAPTIVE
+		stealhalf == true ?  requests_steal_half++ : requests_steal_one++;
+#endif
 }
 #endif // STEAL_BACKOFF
 
@@ -965,7 +973,7 @@ static inline void decline_steal_request(struct steal_request *req)
 #ifdef STEAL_ADAPTIVE
 			stealhalf = false;
 			last_steal_req.stealhalf = false;
-			flat_tasks_in_series = 0;
+			steals_in_series = 0;
 #endif
 			steal_backoff_intvl_start = Wtime_usec();
 			steal_backoff_waiting = true;
@@ -1135,9 +1143,6 @@ void *schedule(UNUSED(void *args))
 		//timer_end(&timer_idle);
 		while ((task = pop()) != NULL) {
 			timer_start(&timer_enq_deq_tasks);
-#ifdef STEAL_ADAPTIVE
-			flat_tasks_in_series++;
-#endif
 			run_task(task);
 			deque_list_tl_task_cache(deque, task);
 			timer_end(&timer_enq_deq_tasks);
@@ -1187,7 +1192,12 @@ void *schedule(UNUSED(void *args))
 		//UPDATE();
 		timer_start(&timer_enq_deq_tasks);
 #ifdef STEAL_ADAPTIVE
-		flat_tasks_in_series++;
+		if (stealhalf && loot == 1) {
+			steals_in_series = 1;
+			stealhalf = false;
+		} else {
+			steals_in_series++;
+		}
 #endif
 		run_task(task);
 		deque_list_tl_task_cache(deque, task);
@@ -1237,9 +1247,6 @@ int RT_barrier(void)
 empty_local_queue:
 	while ((task = pop()) != NULL) {
 		timer_start(&timer_enq_deq_tasks);
-#ifdef STEAL_ADAPTIVE
-		flat_tasks_in_series++;
-#endif
 		run_task(task);
 		deque_list_tl_task_cache(deque, task);
 		timer_end(&timer_enq_deq_tasks);
@@ -1283,7 +1290,12 @@ empty_local_queue:
 	//UPDATE();
 	timer_start(&timer_enq_deq_tasks);
 #ifdef STEAL_ADAPTIVE
-	flat_tasks_in_series++;
+	if (stealhalf && loot == 1) {
+		steals_in_series = 1;
+		stealhalf = false;
+	} else {
+		steals_in_series++;
+	}
 #endif
 	run_task(task);
 	deque_list_tl_task_cache(deque, task);
@@ -1350,9 +1362,6 @@ void RT_force_future_channel(Channel *chan, void *data, unsigned int size)
 
 	while ((task = pop_child()) != NULL) {
 		timer_start(&timer_enq_deq_tasks);
-#ifdef STEAL_ADAPTIVE
-		flat_tasks_in_series++;
-#endif
 		run_task(task);
 		deque_list_tl_task_cache(deque, task);
 		timer_end(&timer_enq_deq_tasks);
@@ -1407,7 +1416,12 @@ void RT_force_future_channel(Channel *chan, void *data, unsigned int size)
 		//UPDATE();
 		timer_start(&timer_enq_deq_tasks);
 #ifdef STEAL_ADAPTIVE
-		flat_tasks_in_series++;
+		if (stealhalf && loot == 1) {
+			steals_in_series = 1;
+			stealhalf = false;
+		} else {
+			steals_in_series++;
+		}
 #endif
 		run_task(task);
 		deque_list_tl_task_cache(deque, task);
@@ -1433,9 +1447,6 @@ void RT_taskwait(atomic_t *num_children)
 
 	while ((task = pop_child()) != NULL) {
 		timer_start(&timer_enq_deq_tasks);
-#ifdef STEAL_ADAPTIVE
-		flat_tasks_in_series++;
-#endif
 		run_task(task);
 		deque_list_tl_task_cache(deque, task);
 		timer_end(&timer_enq_deq_tasks);
@@ -1487,7 +1498,12 @@ void RT_taskwait(atomic_t *num_children)
 		//UPDATE();
 		timer_start(&timer_enq_deq_tasks);
 #ifdef STEAL_ADAPTIVE
-		flat_tasks_in_series++;
+		if (stealhalf && loot == 1) {
+			steals_in_series = 1;
+			stealhalf = false;
+		} else {
+			steals_in_series++;
+		}
 #endif
 		run_task(task);
 		deque_list_tl_task_cache(deque, task);
@@ -1507,7 +1523,7 @@ void push(Task *task)
 	deque_list_tl_push(deque, task);
 
 #ifdef STEAL_ADAPTIVE
-	flat_tasks_in_series = 0;
+	steals_in_series = 0;
 	if (stealhalf) {
 		// Switch back to steal-one
 		//LOG("Worker %d switches back to steal-one\n", ID);
