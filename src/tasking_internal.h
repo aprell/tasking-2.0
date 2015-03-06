@@ -18,6 +18,7 @@ extern int num_workers;
 // Private state
 extern PRIVATE int ID;
 extern PRIVATE int num_tasks_exec_worker;
+extern PRIVATE int num_tasks_exec_recently;
 extern PRIVATE int worker_state; // currently unused
 
 // Pointer to the task that is currently running
@@ -74,9 +75,15 @@ static inline void run_task(Task *task)
 		int n = abs(task->end - task->start);
 		//atomic_add(n, num_tasks_exec);
 		num_tasks_exec_worker += n;
+#ifdef STEAL_ADAPTIVE
+		num_tasks_exec_recently += n;
+#endif
 	} else {
 		//atomic_inc(num_tasks_exec);
 		num_tasks_exec_worker++;
+#ifdef STEAL_ADAPTIVE
+		num_tasks_exec_recently++;
+#endif
 	}
 }
 
