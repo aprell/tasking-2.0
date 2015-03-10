@@ -91,7 +91,7 @@ void initRootNode(Node * root, int type)
 }
 
 // Display search statistics
-void showStats(double elapsedSecs)
+void showStats(double elapsed)
 {
 	int tnodes = 0, tleaves = 0, mheight = 0;
 	int i;
@@ -101,7 +101,7 @@ void showStats(double elapsedSecs)
 		tnodes += numNodes[i].n;
 	}
 
-	uts_showStats(GET_NUM_THREADS, chunkSize, elapsedSecs, tnodes, tleaves, mheight);
+	uts_showStats(GET_NUM_THREADS, chunkSize, elapsed, tnodes, tleaves, mheight);
 }
 
 void parTreeSearch(Node);

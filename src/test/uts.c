@@ -122,7 +122,7 @@ double uts_wctime() {
 double uts_wctime() {
 	struct timeval tv;
 	gettimeofday(&tv, NULL);
-	return (tv.tv_sec + 1E-6 * tv.tv_usec);
+	return (tv.tv_sec * 1E3 + 1E-3 * tv.tv_usec);
 }
 #endif
 
@@ -450,7 +450,7 @@ void uts_showStats(int nPes, int chunkSize, double walltime, counter_t nNodes, c
 	// summarize execution info for human consumption
 	else {
 		printf("Tree size = %llu, tree depth = %llu, num leaves = %llu (%.2f%%)\n", nNodes, maxDepth, nLeaves, nLeaves/(float)nNodes*100.0); 
-		printf("Elapsed wall time: %.3f sec, performance = %.0f nodes/sec (%.0f nodes/sec per PE)\n\n",
+		printf("Elapsed wall time: %.3f ms, performance = %.0f nodes/ms (%.0f nodes/ms per PE)\n\n",
 				walltime, (nNodes / walltime), (nNodes / walltime / nPes));
 	}
 }
