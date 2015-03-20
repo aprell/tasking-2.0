@@ -558,11 +558,6 @@ do { \
 #define SEND_REQ_MANAGER(req)		SEND_REQ(chan_manager[my_partition->manager], req)
 #define SEND_REQ_PARTITION(req)		SEND_REQ(chan_manager[next_manager], req)
 
-#if 0
-#define RECV_REQ(req) \
-	channel_receive(chan_requests[ID], req, sizeof(*(req)))
-#endif
-
 static inline bool RECV_REQ(struct steal_request *req)
 {
 	bool ret;
@@ -572,6 +567,19 @@ static inline bool RECV_REQ(struct steal_request *req)
 	ret = channel_receive(chan_requests[ID], req, sizeof(*(req)));
 
 	timer_end(&timer_send_recv_sreqs);
+
+	return ret;
+}
+
+static inline bool RECV_TASK(Task **task)
+{
+	bool ret;
+
+	timer_start(&timer_send_recv_tasks);
+
+	ret = channel_receive(chan_tasks[ID], (void *)task, sizeof(Task *));
+
+	timer_end(&timer_send_recv_tasks);
 
 	return ret;
 }
@@ -861,9 +869,8 @@ static inline void UPDATE(void)
 	if (num_workers == 1)
 		return;
 
-	timer_start(&timer_send_recv_sreqs);
-
 	if (deque_list_tl_num_tasks(deque) <= REQ_THRESHOLD) {
+		timer_start(&timer_send_recv_sreqs);
 #ifdef STEAL_ADAPTIVE
 		// Estimate work-stealing efficiency during the last interval
 		// If the value is below a threshold, switch strategies
@@ -876,9 +883,8 @@ static inline void UPDATE(void)
 		}
 #endif
 		send_steal_request(false);
+		timer_end(&timer_send_recv_sreqs);
 	}
-
-	timer_end(&timer_send_recv_sreqs);
 }
 
 // We make sure that there is at most one outstanding steal request per worker
@@ -952,7 +958,7 @@ static inline void resend_steal_request(void)
 	requests_resent++;
 	requests_sent++;
 #ifdef STEAL_ADAPTIVE
-		stealhalf == true ?  requests_steal_half++ : requests_steal_one++;
+	stealhalf == true ?  requests_steal_half++ : requests_steal_one++;
 #endif
 }
 #endif // STEAL_BACKOFF
@@ -1004,8 +1010,6 @@ static inline void decline_all_steal_requests(void)
 {
 	struct steal_request req;
 
-	timer_end(&timer_idle);
-
 	if (RECV_REQ(&req)) {
 		timer_start(&timer_send_recv_sreqs);
 		if (req.ID == ID && !req.idle) {
@@ -1014,8 +1018,6 @@ static inline void decline_all_steal_requests(void)
 		decline_steal_request(&req);
 		timer_end(&timer_send_recv_sreqs);
 	}
-
-	timer_start(&timer_idle);
 }
 
 static void handle_steal_request(struct steal_request *req)
@@ -1033,7 +1035,9 @@ static void handle_steal_request(struct steal_request *req)
 				assert(req->pass == num_partitions);
 				assert(req->partition == my_partition->number);
 				req->quiescent = false;
+				timer_start(&timer_send_recv_sreqs);
 				SEND_REQ_MANAGER(req);
+				timer_end(&timer_send_recv_sreqs);
 			}
 #else
 			assert(!req->quiescent);
@@ -1049,7 +1053,7 @@ static void handle_steal_request(struct steal_request *req)
 		}
 	}
 	assert(req->ID != ID);
-	timer_start(&timer_send_recv_tasks);
+	timer_start(&timer_enq_deq_tasks);
 #ifdef STEAL_ADAPTIVE
 	if (req->stealhalf) {
 		task = deque_list_tl_steal_half(deque, &tail, &loot);
@@ -1061,14 +1065,18 @@ static void handle_steal_request(struct steal_request *req)
 #else // Default is steal-one
 	task = deque_list_tl_steal(deque);
 #endif
+	timer_end(&timer_enq_deq_tasks);
 	if (task) {
 		if (req->quiescent) {
 			assert(req->idle);
 			assert(req->pass == num_partitions);
 			assert(req->partition == my_partition->number);
 			req->quiescent = false;
+			timer_start(&timer_send_recv_sreqs);
 			SEND_REQ_MANAGER(req);
+			timer_end(&timer_send_recv_sreqs);
 		}
+		timer_start(&timer_send_recv_tasks);
 		task->batch = loot;
 #ifdef STEAL_LASTVICTIM
 		task->victim = ID;
@@ -1087,7 +1095,6 @@ static void handle_steal_request(struct steal_request *req)
 	} else {
 		// Got steal request, but can't serve it
 		// Pass it on to someone else
-		timer_end(&timer_send_recv_tasks);
 		assert(deque_list_tl_empty(deque));
 		timer_start(&timer_send_recv_sreqs);
 		REQ_CLOSE();
@@ -1106,10 +1113,7 @@ int RT_check_for_steal_requests(void)
 	struct steal_request req;
 	int n = 0;
 
-	timer_end(&timer_run_tasks);
-
 	if (!channel_peek(chan_requests[ID])) {
-		timer_start(&timer_run_tasks);
 		return 0;
 	}
 
@@ -1128,8 +1132,6 @@ int RT_check_for_steal_requests(void)
 		n++;
 	}
 
-	timer_start(&timer_run_tasks);
-
 	return n;
 }
 
@@ -1139,15 +1141,14 @@ void *schedule(UNUSED(void *args))
 	Task *task, *tail;
 	int loot;
 
-	//timer_start(&timer_idle);
-
 	// Scheduling loop
 	for (;;) {
 		// (1) Private task queue
-		//timer_end(&timer_idle);
 		while ((task = pop()) != NULL) {
-			timer_start(&timer_enq_deq_tasks);
+			timer_start(&timer_run_tasks);
 			run_task(task);
+			timer_end(&timer_run_tasks);
+			timer_start(&timer_enq_deq_tasks);
 			deque_list_tl_task_cache(deque, task);
 			timer_end(&timer_enq_deq_tasks);
 		}
@@ -1155,13 +1156,19 @@ void *schedule(UNUSED(void *args))
 		// (2) Work-stealing request
 		assert(requested);
 		timer_start(&timer_idle);
-		while (!channel_receive(chan_tasks[ID], (void *)&task, sizeof(Task *))) {
+		while (!RECV_TASK(&task)) {
 			assert(deque_list_tl_empty(deque));
 			assert(requested);
+			timer_end(&timer_idle);
 			decline_all_steal_requests();
+			timer_start(&timer_idle);
 #ifdef STEAL_BACKOFF
 			if (steal_backoff_waiting && (Wtime_usec() - steal_backoff_intvl_start >= steal_backoff_usec)) {
+				timer_end(&timer_idle);
+				timer_start(&timer_send_recv_sreqs);
 				resend_steal_request();
+				timer_end(&timer_send_recv_sreqs);
+				timer_start(&timer_idle);
 				assert(!steal_backoff_waiting);
 			}
 #endif
@@ -1171,15 +1178,16 @@ void *schedule(UNUSED(void *args))
 			}
 		}
 		timer_end(&timer_idle);
-		timer_start(&timer_send_recv_tasks);
 		loot = task->batch;
 #ifdef STEAL_LASTVICTIM
 		last_victim = task->victim;
 		assert(last_victim != 1 && last_victim != ID);
 #endif
 		if (loot > 1) {
-			while (!channel_receive(chan_tasks[ID], (void *)&tail, sizeof(Task *))) ;
+			while (!RECV_TASK(&tail)) ;
+			timer_start(&timer_enq_deq_tasks);
 			task = deque_list_tl_pop(deque_list_tl_prepend(deque, task, tail, loot));
+			timer_end(&timer_enq_deq_tasks);
 			REQ_OPEN();
 		}
 #ifdef VICTIM_CHECK
@@ -1187,18 +1195,19 @@ void *schedule(UNUSED(void *args))
 			REQ_OPEN();
 		}
 #endif
-		timer_end(&timer_send_recv_tasks);
 		requested = false;
 #ifdef STEAL_BACKOFF
 		steal_backoff_usec = STEAL_BACKOFF_BASE;
 #endif
 		//TODO Figure out at which points updates are reasonable
 		//UPDATE();
-		timer_start(&timer_enq_deq_tasks);
 #ifdef STEAL_ADAPTIVE
 		num_steals_exec_recently++;
 #endif
+		timer_start(&timer_run_tasks);
 		run_task(task);
+		timer_end(&timer_run_tasks);
+		timer_start(&timer_enq_deq_tasks);
 		deque_list_tl_task_cache(deque, task);
 		timer_end(&timer_enq_deq_tasks);
 	}
@@ -1245,8 +1254,10 @@ int RT_barrier(void)
 
 empty_local_queue:
 	while ((task = pop()) != NULL) {
-		timer_start(&timer_enq_deq_tasks);
+		timer_start(&timer_run_tasks);
 		run_task(task);
+		timer_end(&timer_run_tasks);
+		timer_start(&timer_enq_deq_tasks);
 		deque_list_tl_task_cache(deque, task);
 		timer_end(&timer_enq_deq_tasks);
 	}
@@ -1256,10 +1267,12 @@ empty_local_queue:
 
 	assert(requested);
 	timer_start(&timer_idle);
-	while (!channel_receive(chan_tasks[ID], (void *)&task, sizeof(Task *))) {
+	while (!RECV_TASK(&task)) {
 		assert(deque_list_tl_empty(deque));
 		assert(requested);
+		timer_end(&timer_idle);
 		decline_all_steal_requests();
+		timer_start(&timer_idle);
 		if (channel_receive(chan_barrier, &quiescent, sizeof(quiescent))) {
 			assert(quiescent);
 			timer_end(&timer_idle);
@@ -1267,15 +1280,16 @@ empty_local_queue:
 		}
 	}
 	timer_end(&timer_idle);
-	timer_start(&timer_send_recv_tasks);
 	loot = task->batch;
 #ifdef STEAL_LASTVICTIM
 	last_victim = task->victim;
 	assert(last_victim != 1 && last_victim != ID);
 #endif
 	if (loot > 1) {
-		while (!channel_receive(chan_tasks[ID], (void *)&tail, sizeof(Task *))) ;
+		while (!RECV_TASK(&tail)) ;
+		timer_start(&timer_enq_deq_tasks);
 		task = deque_list_tl_pop(deque_list_tl_prepend(deque, task, tail, loot));
+		timer_end(&timer_enq_deq_tasks);
 		REQ_OPEN();
 	}
 #ifdef VICTIM_CHECK
@@ -1283,15 +1297,16 @@ empty_local_queue:
 		REQ_OPEN();
 	}
 #endif
-	timer_end(&timer_send_recv_tasks);
 	requested = false;
 	//TODO Figure out at which points updates are reasonable
 	//UPDATE();
-	timer_start(&timer_enq_deq_tasks);
 #ifdef STEAL_ADAPTIVE
 	num_steals_exec_recently++;
 #endif
+	timer_start(&timer_run_tasks);
 	run_task(task);
+	timer_end(&timer_run_tasks);
+	timer_start(&timer_enq_deq_tasks);
 	deque_list_tl_task_cache(deque, task);
 	timer_end(&timer_enq_deq_tasks);
 	goto empty_local_queue;
@@ -1305,12 +1320,15 @@ RT_barrier_exit:
 	assert(req.pass == num_partitions);
 	assert(req.partition == my_partition->number);
 	req.quiescent = false;
+	timer_start(&timer_send_recv_sreqs);
 	SEND_REQ_MANAGER(&req);
+	timer_end(&timer_send_recv_sreqs);
 	if (req.ID == ID) {
 		assert(requested);
 		requested = false;
 	} else {
 		// Package up and send a dummy task
+		timer_start(&timer_send_recv_tasks);
 		Task *dummy = task_alloc();
 		dummy->fn = (void (*)(void *))run_dummy;
 		dummy->batch = 1;
@@ -1318,6 +1336,7 @@ RT_barrier_exit:
 		dummy->victim = ID;
 #endif
 		channel_send(chan_tasks[req.ID], (void *)&dummy, sizeof(Task *));
+		timer_end(&timer_send_recv_tasks);
 	}
 #else
 	// Remove own steal request to reflect the fact that the computation continues
@@ -1329,12 +1348,16 @@ RT_barrier_exit:
 				assert(req.pass == num_partitions);
 				assert(req.partition == my_partition->number);
 				req.quiescent = false;
+				timer_start(&timer_send_recv_sreqs);
 				SEND_REQ_MANAGER(&req);
+				timer_end(&timer_send_recv_sreqs);
 				assert(requested);
 				requested = false;
 				break;
 			}
+			timer_start(&timer_send_recv_sreqs);
 			decline_steal_request(&req);
+			timer_end(&timer_send_recv_sreqs);
 		}
 	}
 #endif // OPTIMIZE_BARRIER

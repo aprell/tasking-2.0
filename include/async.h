@@ -7,7 +7,6 @@
 #include "timer.h"
 
 #ifndef NTIME
-extern PRIVATE mytimer_t timer_run_tasks;
 extern PRIVATE mytimer_t timer_enq_deq_tasks;
 #endif
 
@@ -121,11 +120,7 @@ void fname##_task_func(struct fname##_task_data *__d) \
 	assert((struct fname##_task_data *)this->data == __d); \
 	\
 	UNPACK(__d, args); \
-	timer_end(&timer_enq_deq_tasks); \
-	timer_start(&timer_run_tasks); \
 	fname(args); \
-	timer_end(&timer_run_tasks); \
-	timer_start(&timer_enq_deq_tasks); \
 }
 
 // User code need not be aware of channels
@@ -168,11 +163,7 @@ void fname##_task_func(struct fname##_task_data *__d) \
 	assert((struct fname##_task_data *)this->data == __d); \
 	\
 	UNPACK(__d, args, __f); \
-	timer_end(&timer_enq_deq_tasks); \
-	timer_start(&timer_run_tasks); \
 	ret __tmp = fname(args); \
-	timer_end(&timer_run_tasks); \
-	timer_start(&timer_enq_deq_tasks); \
 	channel_send(chanref_get(__f), &__tmp, sizeof(__tmp)); \
 }
 #else
@@ -194,11 +185,7 @@ void fname##_task_func(struct fname##_task_data *__d) \
 	assert((struct fname##_task_data *)this->data == __d); \
 	\
 	UNPACK(__d, args, __f); \
-	timer_end(&timer_enq_deq_tasks); \
-	timer_start(&timer_run_tasks); \
 	ret __tmp = fname(args); \
-	timer_end(&timer_run_tasks); \
-	timer_start(&timer_enq_deq_tasks); \
 	channel_send(chanref_get(__f), &__tmp, sizeof(__tmp)); \
 }
 #endif // CACHE_FUTURES
@@ -217,11 +204,7 @@ void fname##_task_func(struct fname##_task_data *__d) \
 	assert((struct fname##_task_data *)this->data == __d); \
 	\
 	UNPACK(__d, args, __r, num_children); \
-	timer_end(&timer_enq_deq_tasks); \
-	timer_start(&timer_run_tasks); \
 	*__r = fname(args); \
-	timer_end(&timer_run_tasks); \
-	timer_start(&timer_enq_deq_tasks); \
 	atomic_dec(num_children); \
 }
 
