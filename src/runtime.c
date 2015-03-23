@@ -1378,8 +1378,10 @@ void RT_force_future_channel(Channel *chan, void *data, unsigned int size)
 		goto RT_force_future_channel_return;
 
 	while ((task = pop_child()) != NULL) {
-		timer_start(&timer_enq_deq_tasks);
+		timer_start(&timer_run_tasks);
 		run_task(task);
+		timer_end(&timer_run_tasks);
+		timer_start(&timer_enq_deq_tasks);
 		deque_list_tl_task_cache(deque, task);
 		timer_end(&timer_enq_deq_tasks);
 		if (channel_receive(chan, data, size))
@@ -1388,19 +1390,20 @@ void RT_force_future_channel(Channel *chan, void *data, unsigned int size)
 
 	assert(get_current_task() == this);
 
-	timer_start(&timer_idle);
 	while (!channel_receive(chan, data, size)) {
-		timer_end(&timer_idle);
 		timer_start(&timer_send_recv_sreqs);
 		send_steal_request(false);
 		timer_end(&timer_send_recv_sreqs);
 		timer_start(&timer_idle);
-		while (!channel_receive(chan_tasks[ID], (void *)&task, sizeof(Task *))) {
+		while (!RECV_TASK(&task)) {
 			// We might inadvertently remove our own steal request in
 			// handle_steal_request, so:
-			if (!requested)
-				send_steal_request(false);
 			timer_end(&timer_idle);
+			if (!requested) {
+				timer_start(&timer_send_recv_sreqs);
+				send_steal_request(false);
+				timer_end(&timer_send_recv_sreqs);
+			}
 			// Check if someone requested to steal from us
 			while (RECV_REQ(&req))
 				handle_steal_request(&req);
@@ -1411,15 +1414,16 @@ void RT_force_future_channel(Channel *chan, void *data, unsigned int size)
 			}
 		}
 		timer_end(&timer_idle);
-		timer_start(&timer_send_recv_tasks);
 		loot = task->batch;
 #ifdef STEAL_LASTVICTIM
 		last_victim = task->victim;
 		assert(last_victim != 1 && last_victim != ID);
 #endif
 		if (loot > 1) {
-			while (!channel_receive(chan_tasks[ID], (void *)&tail, sizeof(Task *))) ;
+			while (!RECV_TASK(&tail)) ;
+			timer_start(&timer_enq_deq_tasks);
 			task = deque_list_tl_pop(deque_list_tl_prepend(deque, task, tail, loot));
+			timer_end(&timer_enq_deq_tasks);
 			REQ_OPEN();
 		}
 #ifdef VICTIM_CHECK
@@ -1427,20 +1431,19 @@ void RT_force_future_channel(Channel *chan, void *data, unsigned int size)
 			REQ_OPEN();
 		}
 #endif
-		timer_end(&timer_send_recv_tasks);
 		requested = false;
 		//TODO Figure out at which points updates are reasonable
 		//UPDATE();
-		timer_start(&timer_enq_deq_tasks);
 #ifdef STEAL_ADAPTIVE
 		num_steals_exec_recently++;
 #endif
+		timer_start(&timer_run_tasks);
 		run_task(task);
+		timer_end(&timer_run_tasks);
+		timer_start(&timer_enq_deq_tasks);
 		deque_list_tl_task_cache(deque, task);
 		timer_end(&timer_enq_deq_tasks);
-		timer_start(&timer_idle);
 	}
-	timer_end(&timer_idle);
 
 RT_force_future_channel_return:
 	return;
@@ -1458,8 +1461,10 @@ void RT_taskwait(atomic_t *num_children)
 		goto RT_taskwait_return;
 
 	while ((task = pop_child()) != NULL) {
-		timer_start(&timer_enq_deq_tasks);
+		timer_start(&timer_run_tasks);
 		run_task(task);
+		timer_end(&timer_run_tasks);
+		timer_start(&timer_enq_deq_tasks);
 		deque_list_tl_task_cache(deque, task);
 		timer_end(&timer_enq_deq_tasks);
 		if (atomic_read(num_children) == 0)
@@ -1468,16 +1473,20 @@ void RT_taskwait(atomic_t *num_children)
 
 	assert(get_current_task() == this);
 
-	timer_start(&timer_idle);
 	while (atomic_read(num_children) > 0) {
-		timer_end(&timer_idle);
 		timer_start(&timer_send_recv_sreqs);
 		send_steal_request(false);
 		timer_end(&timer_send_recv_sreqs);
 		timer_start(&timer_idle);
-		while (!channel_receive(chan_tasks[ID], (void *)&task, sizeof(Task *))) {
-			assert(requested);
+		while (!RECV_TASK(&task)) {
+			// We might inadvertently remove our own steal request in
+			// handle_steal_request, so:
 			timer_end(&timer_idle);
+			if (!requested) {
+				timer_start(&timer_send_recv_sreqs);
+				send_steal_request(false);
+				timer_end(&timer_send_recv_sreqs);
+			}
 			// Check if someone requested to steal from us
 			while (RECV_REQ(&req))
 				handle_steal_request(&req);
@@ -1488,15 +1497,16 @@ void RT_taskwait(atomic_t *num_children)
 			}
 		}
 		timer_end(&timer_idle);
-		timer_start(&timer_send_recv_tasks);
 		loot = task->batch;
 #ifdef STEAL_LASTVICTIM
 		last_victim = task->victim;
 		assert(last_victim != 1 && last_victim != ID);
 #endif
 		if (loot > 1) {
-			while (!channel_receive(chan_tasks[ID], (void *)&tail, sizeof(Task *))) ;
+			while (!RECV_TASK(&tail)) ;
+			timer_start(&timer_enq_deq_tasks);
 			task = deque_list_tl_pop(deque_list_tl_prepend(deque, task, tail, loot));
+			timer_end(&timer_enq_deq_tasks);
 			REQ_OPEN();
 		}
 #ifdef VICTIM_CHECK
@@ -1504,20 +1514,19 @@ void RT_taskwait(atomic_t *num_children)
 			REQ_OPEN();
 		}
 #endif
-		timer_end(&timer_send_recv_tasks);
 		requested = false;
 		//TODO Figure out at which points updates are reasonable
 		//UPDATE();
-		timer_start(&timer_enq_deq_tasks);
 #ifdef STEAL_ADAPTIVE
 		num_steals_exec_recently++;
 #endif
+		timer_start(&timer_run_tasks);
 		run_task(task);
+		timer_end(&timer_run_tasks);
+		timer_start(&timer_enq_deq_tasks);
 		deque_list_tl_task_cache(deque, task);
 		timer_end(&timer_enq_deq_tasks);
-		timer_start(&timer_idle);
 	}
-	timer_end(&timer_idle);
 
 RT_taskwait_return:
 	return;
@@ -1636,6 +1645,8 @@ static void split_loop(Task *task, struct steal_request *req)
 {
 	assert(req->ID != ID);
 
+	timer_start(&timer_send_recv_tasks);
+
 	Task *dup = task_alloc();
 	long split;
 
@@ -1658,7 +1669,11 @@ static void split_loop(Task *task, struct steal_request *req)
 		assert(req->pass == num_partitions);
 		assert(req->partition == my_partition->number);
 		req->quiescent = false;
+		timer_end(&timer_send_recv_tasks);
+		timer_start(&timer_send_recv_sreqs);
 		SEND_REQ_MANAGER(req);
+		timer_end(&timer_send_recv_sreqs);
+		timer_start(&timer_send_recv_tasks);
 	}
 
 	dup->batch = 1;
@@ -1675,6 +1690,8 @@ static void split_loop(Task *task, struct steal_request *req)
 
 	// Current task continues with lower half of iterations
 	task->end = split;
+
+	timer_end(&timer_send_recv_tasks);
 
 	//LOG("Worker %2d: Continuing with (%ld, %ld)\n", ID, task->start, task->end);
 }
