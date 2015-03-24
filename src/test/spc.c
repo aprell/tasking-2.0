@@ -7,7 +7,7 @@
 #include "tasking.h"
 #include "async.h"
 #include "wtime.h"
-#include "timer.h"
+#include "profile.h"
 
 //#define LOOPTASKS
 
@@ -19,10 +19,8 @@ void print_usage(void)
 	printf("Usage: spc <number of tasks> <task granularity (us)>\n");
 }
 
-#ifndef NTIME
-extern PRIVATE mytimer_t timer_run_tasks;
-extern PRIVATE mytimer_t timer_enq_deq_tasks;
-#endif
+PROFILE_EXTERN_DECL(RUN_TASK);
+PROFILE_EXTERN_DECL(ENQ_DEQ_TASK);
 
 void spc_consume(int usec)
 {

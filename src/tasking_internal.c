@@ -5,7 +5,7 @@
 #include <pthread.h>
 #include "tasking_internal.h"
 #include "tasking.h"
-#include "timer.h"
+#include "profile.h"
 #include "affinity.h"
 
 #define UNUSED __attribute__((unused))
@@ -114,14 +114,12 @@ int tasking_internal_exit_signal(void)
 	return 0;
 }
 
-#ifndef NTIME
-// To measure the cost of different parts of the runtime
-extern PRIVATE mytimer_t timer_run_tasks;
-extern PRIVATE mytimer_t timer_enq_deq_tasks;
-extern PRIVATE mytimer_t timer_send_recv_tasks;
-extern PRIVATE mytimer_t timer_send_recv_sreqs;
-extern PRIVATE mytimer_t timer_idle;
-#endif
+// To profile different parts of the runtime
+PROFILE_EXTERN_DECL(RUN_TASK);
+PROFILE_EXTERN_DECL(ENQ_DEQ_TASK);
+PROFILE_EXTERN_DECL(SEND_RECV_TASK);
+PROFILE_EXTERN_DECL(SEND_RECV_REQ);
+PROFILE_EXTERN_DECL(IDLE);
 
 extern PRIVATE unsigned int requests_sent, requests_handled;
 extern PRIVATE unsigned int requests_declined, tasks_sent;
@@ -161,24 +159,7 @@ int tasking_internal_statistics(void)
 			: 0);
 #endif
 
-#ifndef NTIME
-	// Parsable format
-	// The first value should make it easy to grep for these lines, e.g. with
-	// ./a.out | grep Timer | cut -d, -f2-
-	// Worker ID, Task, Send/Recv Req, Send/Recv Task, Enq/Deq Task, Idle, Total
-	printf("Timer,%d,%.3lf,%.3lf,%.3lf,%.3lf,%.3lf,%.3lf\n", ID,
-		   timer_elapsed  (&timer_run_tasks,       timer_us),
-		   timer_elapsed  (&timer_send_recv_sreqs, timer_us),
-		   timer_elapsed  (&timer_send_recv_tasks, timer_us),
-		   timer_elapsed  (&timer_enq_deq_tasks,   timer_us),
-		   timer_elapsed  (&timer_idle,            timer_us),
-		   timers_elapsed (&timer_run_tasks,       timer_us,
-			               &timer_send_recv_sreqs,
-						   &timer_send_recv_tasks,
-						   &timer_enq_deq_tasks,
-						   &timer_idle,
-						   NULL));
-#endif
+	PROFILE_RESULTS();
 
 	fflush(stdout);
 

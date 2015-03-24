@@ -4,11 +4,9 @@
 #include <assert.h>
 #include "tasking_internal.h"
 #include "chanref.h"
-#include "timer.h"
+#include "profile.h"
 
-#ifndef NTIME
-extern PRIVATE mytimer_t timer_enq_deq_tasks;
-#endif
+PROFILE_EXTERN_DECL(ENQ_DEQ_TASK);
 
 /* Count variadic macro arguments (1-10 arguments, extend as needed)
  */
@@ -220,7 +218,7 @@ void fname##_task_func(struct fname##_task_data *__d) \
 do { \
 	Task *__task; \
 	struct f##_task_data *__d; \
-	timer_start(&timer_enq_deq_tasks); \
+	PROFILE(ENQ_DEQ_TASK) { \
 	\
 	__task = task_alloc(); \
 	__task->parent = get_current_task(); \
@@ -229,7 +227,7 @@ do { \
 	__d = (struct f##_task_data *)__task->data; \
 	PACK(__d, args); \
 	push(__task); \
-	timer_end(&timer_enq_deq_tasks); \
+	} /* PROFILE */ \
 } while (0)
 
 // Version that returns a future to wait for
@@ -238,7 +236,7 @@ do { \
 	Task *__task; \
 	struct f##_task_data *__d; \
 	future __f; \
-	timer_start(&timer_enq_deq_tasks); \
+	PROFILE(ENQ_DEQ_TASK) { \
 	\
 	__task = task_alloc(); \
 	__task->parent = get_current_task(); \
@@ -248,7 +246,7 @@ do { \
 	__f = new_future(f); \
 	PACK(__d, args, __f); \
 	push(__task); \
-	timer_end(&timer_enq_deq_tasks); \
+	} /* PROFILE */ \
 	__f; \
 })
 
@@ -257,7 +255,7 @@ do { \
 do { \
 	Task *__task; \
 	struct f##_task_data *__d; \
-	timer_start(&timer_enq_deq_tasks); \
+	PROFILE(ENQ_DEQ_TASK) { \
 	\
 	__task = task_alloc(); \
 	__task->parent = get_current_task(); \
@@ -267,7 +265,7 @@ do { \
 	atomic_inc(&num_children); \
 	PACK(__d, args, &num_children); \
 	push(__task); \
-	timer_end(&timer_enq_deq_tasks); \
+	} /* PROFILE */ \
 } while (0)
 
 extern void RT_force_future_channel(Channel *, void *, unsigned int);
@@ -316,7 +314,7 @@ extern void RT_taskwait(atomic_t *num_children);
 do { \
 	Task *__task; \
 	struct f##_task_data *__d; \
-	timer_start(&timer_enq_deq_tasks); \
+	PROFILE(ENQ_DEQ_TASK) { \
 	\
 	__task = task_alloc(); \
 	__task->parent = get_current_task(); \
@@ -329,7 +327,7 @@ do { \
 	__d = (struct f##_task_data *)__task->data; \
 	PACK(__d, env); \
 	push(__task); \
-	timer_end(&timer_enq_deq_tasks); \
+	} /* PROFILE */ \
 } while (0)
 
 /* Iterate over loop task
