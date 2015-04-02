@@ -1026,7 +1026,7 @@ static inline void decline_all_steal_requests(void)
 
 static void handle_steal_request(struct steal_request *req)
 {
-	Task *task, *tail;
+	Task *task;
 	int loot = 1;
 
 	if (req->ID == ID) {
@@ -1057,12 +1057,12 @@ static void handle_steal_request(struct steal_request *req)
 
 #ifdef STEAL_ADAPTIVE
 	if (req->stealhalf) {
-		task = deque_list_tl_steal_half(deque, &tail, &loot);
+		task = deque_list_tl_steal_half(deque, &loot);
 	} else {
 		task = deque_list_tl_steal(deque);
 	}
 #elif defined STEAL_HALF
-	task = deque_list_tl_steal_half(deque, &tail, &loot);
+	task = deque_list_tl_steal_half(deque, &loot);
 #else // Default is steal-one
 	task = deque_list_tl_steal(deque);
 #endif
@@ -1083,9 +1083,6 @@ static void handle_steal_request(struct steal_request *req)
 		task->victim = ID;
 #endif
 		channel_send(chan_tasks[req->ID], (void *)&task, sizeof(Task *));
-		if (loot > 1) {
-			channel_send(chan_tasks[req->ID], (void *)&tail, sizeof(Task *));
-		}
 		//LOG("Worker %2d: sending %d tasks to worker %d\n", ID, loot, req->ID);
 		requests_handled++;
 		tasks_sent += loot;
@@ -1138,7 +1135,7 @@ int RT_check_for_steal_requests(void)
 // Executed by worker threads
 void *schedule(UNUSED(void *args))
 {
-	Task *task, *tail;
+	Task *task;
 	int loot;
 
 	// Scheduling loop
@@ -1178,10 +1175,7 @@ void *schedule(UNUSED(void *args))
 		assert(last_victim != 1 && last_victim != ID);
 #endif
 		if (loot > 1) {
-			while (!RECV_TASK(&tail)) ;
-			PROFILE(ENQ_DEQ_TASK) {
-				task = deque_list_tl_pop(deque_list_tl_prepend(deque, task, tail, loot));
-			}
+			PROFILE(ENQ_DEQ_TASK) task = deque_list_tl_pop(deque_list_tl_prepend(deque, task, loot));
 			REQ_OPEN();
 		}
 #ifdef VICTIM_CHECK
@@ -1238,7 +1232,7 @@ int RT_barrier(void)
 
 	assert(is_root_task(get_current_task()));
 
-	Task *task, *tail;
+	Task *task;
 	int loot;
 	bool quiescent;
 
@@ -1272,10 +1266,7 @@ empty_local_queue:
 	assert(last_victim != 1 && last_victim != ID);
 #endif
 	if (loot > 1) {
-		while (!RECV_TASK(&tail)) ;
-		PROFILE(ENQ_DEQ_TASK) {
-			task = deque_list_tl_pop(deque_list_tl_prepend(deque, task, tail, loot));
-		}
+		PROFILE(ENQ_DEQ_TASK) task = deque_list_tl_pop(deque_list_tl_prepend(deque, task, loot));
 		REQ_OPEN();
 	}
 #ifdef VICTIM_CHECK
@@ -1345,7 +1336,7 @@ RT_barrier_exit:
 
 void RT_force_future_channel(Channel *chan, void *data, unsigned int size)
 {
-	Task *task, *tail;
+	Task *task;
 	Task *this = get_current_task();
 	struct steal_request req;
 	int loot;
@@ -1392,10 +1383,7 @@ void RT_force_future_channel(Channel *chan, void *data, unsigned int size)
 		assert(last_victim != 1 && last_victim != ID);
 #endif
 		if (loot > 1) {
-			while (!RECV_TASK(&tail)) ;
-			PROFILE(ENQ_DEQ_TASK) {
-				task = deque_list_tl_pop(deque_list_tl_prepend(deque, task, tail, loot));
-			}
+			PROFILE(ENQ_DEQ_TASK) task = deque_list_tl_pop(deque_list_tl_prepend(deque, task, loot));
 			REQ_OPEN();
 		}
 #ifdef VICTIM_CHECK
@@ -1420,7 +1408,7 @@ RT_force_future_channel_return:
 // Return when *num_children == 0
 void RT_taskwait(atomic_t *num_children)
 {
-	Task *task, *tail;
+	Task *task;
 	Task *this = get_current_task();
 	struct steal_request req;
 	int loot;
@@ -1465,10 +1453,7 @@ void RT_taskwait(atomic_t *num_children)
 		assert(last_victim != 1 && last_victim != ID);
 #endif
 		if (loot > 1) {
-			while (!RECV_TASK(&tail)) ;
-			PROFILE(ENQ_DEQ_TASK) {
-				task = deque_list_tl_pop(deque_list_tl_prepend(deque, task, tail, loot));
-			}
+			PROFILE(ENQ_DEQ_TASK) task = deque_list_tl_pop(deque_list_tl_prepend(deque, task, loot));
 			REQ_OPEN();
 		}
 #ifdef VICTIM_CHECK

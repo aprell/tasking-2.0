@@ -3,11 +3,13 @@
 
 #include <stdbool.h>
 #include "task.h"
+#include "overload_deque_list_tl_steal_half.h"
+#include "overload_deque_list_tl_prepend.h"
 
 //==========================================================================//
 //                                                                          //
 //    A list-based thread-local work-stealing deque                         //
-//                                                                          //    
+//                                                                          //
 //    Tasks are stored in a doubly linked list -> unbounded                 //
 //                                                                          //
 //==========================================================================//
@@ -28,7 +30,10 @@ Task *deque_list_tl_steal(DequeListTL *dq);
 Task *deque_list_tl_steal_many(DequeListTL *dq, Task **tail, int max,
 		                       int *stolen);
 Task *deque_list_tl_steal_half(DequeListTL *dq, Task **tail, int *stolen);
+Task *deque_list_tl_steal_half(DequeListTL *dq, int *stolen);
 DequeListTL *deque_list_tl_prepend(DequeListTL *dq, Task *head, Task *tail,
                                    unsigned int len);
+DequeListTL *deque_list_tl_prepend(DequeListTL *dq, Task *head,
+		                           unsigned int len);
 
 #endif // DEQUE_LIST_TL_H

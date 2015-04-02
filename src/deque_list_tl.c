@@ -76,12 +76,38 @@ void deque_list_tl_task_cache(DequeListTL *dq, Task *task)
 }
 
 // Add list of tasks [head, tail] of length len to the front of dq
-DequeListTL *deque_list_tl_prepend(DequeListTL *dq, Task *head, Task *tail, 
+DequeListTL *deque_list_tl_prepend(DequeListTL *dq, Task *head, Task *tail,
 		                          unsigned int len)
 {
 	assert(dq != NULL);
 	assert(head != NULL && tail != NULL);
 	assert(len > 0);
+
+	// Link tail with dq->head
+	assert(tail->next == NULL);
+	tail->next = dq->head;
+	dq->head->prev = tail;
+
+	// Update state of deque
+	dq->head = head;
+	dq->num_tasks += len;
+
+	return dq;
+}
+
+// Add list of tasks starting with head of length len to the front of dq
+DequeListTL *deque_list_tl_prepend(DequeListTL *dq, Task *head, unsigned int len)
+{
+	assert(dq != NULL);
+	assert(head != NULL);
+	assert(len > 0);
+
+	Task *tail = head;
+
+	// Find the tail
+	while (tail->next != NULL) {
+		tail = tail->next;
+	}
 
 	// Link tail with dq->head
 	assert(tail->next == NULL);
@@ -188,7 +214,7 @@ Task *deque_list_tl_steal_many(DequeListTL *dq, Task **tail, int max, int *stole
 	assert(stolen != NULL);
 
 	Task *task;
-	int n, i; 
+	int n, i;
 
 	if (deque_list_tl_empty(dq))
 		return NULL;
@@ -234,7 +260,7 @@ Task *deque_list_tl_steal_half(DequeListTL *dq, Task **tail, int *stolen)
 	assert(stolen != NULL);
 
 	Task *task;
-	int n, i; 
+	int n, i;
 
 	if (deque_list_tl_empty(dq))
 		return NULL;
@@ -270,11 +296,53 @@ Task *deque_list_tl_steal_half(DequeListTL *dq, Task **tail, int *stolen)
 	return task;
 }
 
+// Steal half of the deque's tasks
+// stolen will contain the number of transferred tasks
+Task *deque_list_tl_steal_half(DequeListTL *dq, int *stolen)
+{
+	assert(dq != NULL);
+
+	Task *task;
+	int n, i;
+
+	if (deque_list_tl_empty(dq))
+		return NULL;
+
+	// Make sure to steal at least one task
+	n = dq->num_tasks / 2;
+	if (n == 0) n = 1;
+
+	task = dq->tail;
+	assert(task->fn == (void *)0xCAFE);
+
+	// Walk backwards
+	for (i = 0; i < n; i++) {
+		task = task->prev;
+	}
+
+	dq->tail->prev->next = NULL;
+	dq->tail->prev = task->prev;
+	task->prev = NULL;
+	if (dq->tail->prev == NULL) {
+		// Stealing the last task in the deque
+		assert(dq->head == task);
+		dq->head = dq->tail;
+	} else {
+		dq->tail->prev->next = dq->tail;
+	}
+
+	dq->num_tasks -= n;
+	dq->num_steals++;
+	*stolen = n;
+
+	return task;
+}
+
 bool deque_list_tl_empty(DequeListTL *dq)
 {
 	assert(dq != NULL);
 
-	return dq->head == dq->tail && dq->num_tasks == 0; 
+	return dq->head == dq->tail && dq->num_tasks == 0;
 }
 
 unsigned int deque_list_tl_num_tasks(DequeListTL *dq)
