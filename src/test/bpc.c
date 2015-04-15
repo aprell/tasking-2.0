@@ -17,25 +17,32 @@ static int NUM_TASKS_PER_DEPTH; // For example, 9
 // (NUM_TASKS_PER_DEPTH + 1) * DEPTH
 static int NUM_TASKS_TOTAL;
 static int TASK_GRANULARITY; // in microseconds
+static double POLL_INTERVAL; // in microseconds
 
 void print_usage(void)
 {
-	printf("Usage: bpc <depth> <number of tasks per depth> <task granularity (us)>\n");
+	// If not specified, the polling interval is set to the value of
+	// TASK_GRANULARITY, which effectively disables polling
+	printf("Usage: bpc <depth> <number of tasks per depth> <task granularity (us)> "
+		   "[polling interval (us)]\n");
 }
 
 PROFILE_EXTERN_DECL(RUN_TASK);
 PROFILE_EXTERN_DECL(ENQ_DEQ_TASK);
 
+static PRIVATE double poll_elapsed;
+
 void bpc_consume(int usec)
 {
 	double start, end, elapsed;
-	double RT_start;
+	double RT_poll_elapsed = 0;
 	start = Wtime_usec();
 	end = usec;
-	int x = 0;
+	poll_elapsed = POLL_INTERVAL;
 
 	for (;;) {
 		elapsed = Wtime_usec() - start;
+		elapsed -= RT_poll_elapsed;
 		if (elapsed >= end)
 			break;
 		// Do some dummy computation
@@ -46,12 +53,11 @@ void bpc_consume(int usec)
 			f2 = f1;
 			f1 = fib;
 		}
-		x++;
-		if (x == 10) {
-			RT_start = Wtime_usec();
+		if (elapsed >= poll_elapsed) {
+			double RT_poll_start = Wtime_usec();
 			(void)RT_check_for_steal_requests();
-			x = 0;
-			elapsed -= Wtime_usec() - RT_start;
+			RT_poll_elapsed += Wtime_usec() - RT_poll_start;
+			poll_elapsed += POLL_INTERVAL;
 		}
 	}
 	//printf("Elapsed: %.2lfus\n", elapsed);
@@ -124,7 +130,7 @@ int main(int argc, char *argv[])
 {
 	double start, end;
 
-	if (argc != 4) {
+	if (argc != 4 && argc != 5) {
 		print_usage();
 		exit(0);
 	}
@@ -132,6 +138,7 @@ int main(int argc, char *argv[])
 	DEPTH = atoi(argv[1]);
 	NUM_TASKS_PER_DEPTH = atoi(argv[2]);
 	TASK_GRANULARITY = atoi(argv[3]);
+	POLL_INTERVAL = argc == 5 ? atof(argv[4]) : TASK_GRANULARITY;
 	NUM_TASKS_TOTAL = (NUM_TASKS_PER_DEPTH + 1) * DEPTH;
 
 	TASKING_INIT(&argc, &argv);
