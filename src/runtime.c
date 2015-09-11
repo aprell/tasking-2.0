@@ -24,28 +24,14 @@ UTEST_MAIN() {}
 
 static PRIVATE DequeListTL *deque;
 
-// Manager/worker -> manager: inter-partition steal requests (MPSC)
-// chan_manager and chan_requests could be merged, but only if we don't care
-// about mutlithreading managers
-static Channel *chan_manager[MAXNP];
-
-// Manager/worker -> worker: intra-partition steal requests (MPSC)
+// Worker -> worker: intra-partition steal requests (MPSC)
 static Channel *chan_requests[MAXNP];
 
 // Worker -> worker: tasks (SPSC)
 static Channel *chan_tasks[MAXNP];
 
-// Manager -> manager: global quiescence detection (SPSC)
-static Channel *chan_quiescence[MAXNP];
-
 // Manager -> master: notify about global quiescence
 static Channel *chan_barrier;
-
-struct token {
-	int sender;		// ID of sender (one of the managers)
-	int val;		// 1 <= val <= num_partitions
-	char __[24];	// pad to cache line
-};
 
 // One possible extension would be to be able to request more than one task
 // at a time. No need to change the work-stealing algorithm.
@@ -167,7 +153,7 @@ static void init_victims(int ID)
 	my_victims[j] = ID;
 
 	MANAGER LOG("Manager %2d: %d of %d workers available\n", ID,
-			my_partition->num_workers_rt-1, my_partition->num_workers);
+			my_partition->num_workers_rt, my_partition->num_workers);
 }
 
 static PRIVATE unsigned int seed;
@@ -284,20 +270,20 @@ int RT_init(void)
 #endif
 	PARTITION_SET();
 
-	//MANAGER LOG("Manager %d --> Manager %d\n", ID, next_manager);
+	MANAGER LOG("Manager %d --> Manager %d\n", ID, next_manager);
 	//LOG("Worker %d: in partition %d\n", ID, my_partition->number);
 
 	deque = deque_list_tl_new();
 
-	chan_requests[ID] = channel_alloc(sizeof(struct steal_request), num_workers, MPSC);
-	chan_tasks[ID] = channel_alloc(sizeof(Task *), 2, SPSC);
-
 	MANAGER {
 		// Unprocessed update message followed by new steal request
 		// => up to two messages per worker
-		chan_manager[ID] = channel_alloc(sizeof(struct steal_request), num_workers * 2, MPSC);
-		chan_quiescence[ID] = channel_alloc(sizeof(struct token), 0, SPSC);
+		chan_requests[ID] = channel_alloc(sizeof(struct steal_request), num_workers * 2, MPSC);
+	} else {
+		chan_requests[ID] = channel_alloc(sizeof(struct steal_request), num_workers, MPSC);
 	}
+
+	chan_tasks[ID] = channel_alloc(sizeof(Task *), 2, SPSC);
 
 	MASTER {
 		chan_barrier = channel_alloc(sizeof(bool), 0, SPSC);
@@ -352,11 +338,6 @@ int RT_exit(void)
 	channel_free(chan_requests[ID]);
 	channel_free(chan_tasks[ID]);
 
-	MANAGER {
-		channel_free(chan_manager[ID]);
-		channel_free(chan_quiescence[ID]);
-	}
-
 	MASTER {
 		channel_free(chan_barrier);
 	}
@@ -403,13 +384,16 @@ static inline int next_victim(struct steal_request *req)
 
 	for (i = req->try; i < my_partition->num_workers_rt-1; i++) {
 		victim = victims[req->ID][i];
-		if (victim != my_partition->manager && LIKELY_HAS_TASKS(victim)) {
+		if (LIKELY_HAS_TASKS(victim)) {
 			//assert(is_in_my_partition(victim));
 			//LOG("Worker %d: Found victim after %i tries\n", ID, i);
 			return victim;
 		}
 		req->try++;
 	}
+
+	assert(i == req->try);
+	assert(req->try == my_partition->num_workers_rt-1);
 
 	victim = victims[req->ID][i];
 	assert(victim == req->ID);
@@ -427,18 +411,11 @@ static inline int random_victim(struct steal_request *req)
 
 	int victim = -1;
 
-	// No other workers in this partition besides the manager?
-	if (my_partition->num_workers_rt-1 == 1) {
-		// Skip manager
-		req->try++;
-		return req->ID;
-	}
-
 	do {
 		int rand = rand_r(&seed) % (my_partition->num_workers_rt-1);
 		victim = my_victims[rand];
 		assert(victim != ID);
-	} while (victim == req->ID || victim == my_partition->manager);
+	} while (victim == req->ID);
 
 	//assert(is_in_my_partition(victim));
 
@@ -456,14 +433,10 @@ static inline int next_victim(struct steal_request *req)
 	}
 
 	// Check all potential victims (excluding ID)
-	// Skip req->ID and my_partition->manager. Skipping my_partition->manager
-	// requires incrementing req->try, as if we attempted a steal but failed.
 	for (i = 0; i < my_partition->num_workers_rt-1,
 			    req->try < my_partition->num_workers_rt-1; i++) {
 		victim = my_victims[i];
-		if (victim == my_partition->manager) {
-			req->try++;
-		} else if (victim != req->ID) {
+		if (victim != req->ID) {
 			if (LIKELY_HAS_TASKS(victim)) {
 				return victim;
 			} else {
@@ -491,7 +464,6 @@ static inline int lastvictim(struct steal_request *req)
 	if (req->try < my_partition->num_workers_rt-1) {
 		if (last_victim != -1 && last_victim != req->ID && LIKELY_HAS_TASKS(last_victim)) {
 			victim = last_victim;
-			assert(victim != my_partition->manager);
 			return victim;
 		}
 		// Fall back to random victim selection
@@ -516,7 +488,6 @@ static inline int leapfrog(struct steal_request *req)
 	if (req->try < my_partition->num_workers_rt-1) {
 		if (last_thief != -1 && last_thief != req->ID && LIKELY_HAS_TASKS(last_thief)) {
 			victim = last_thief;
-			assert(victim != my_partition->manager);
 			return victim;
 		}
 		// Fall back to random victim selection
@@ -551,8 +522,7 @@ do { \
 } while (0)
 
 #define SEND_REQ_WORKER(ID, req)	SEND_REQ(chan_requests[ID], req)
-#define SEND_REQ_MANAGER(req)		SEND_REQ(chan_manager[my_partition->manager], req)
-#define SEND_REQ_PARTITION(req)		SEND_REQ(chan_manager[next_manager], req)
+#define SEND_REQ_MANAGER(req)		SEND_REQ(chan_requests[my_partition->manager], req)
 
 static inline bool RECV_REQ(struct steal_request *req)
 {
@@ -576,46 +546,61 @@ static inline bool RECV_TASK(Task **task)
 	return ret;
 }
 
-#define SEND_QSC_MSG(tok) \
-{ \
-	/* Problematic if the target worker has already left scheduling */\
-	/* ==> send to full channel will block the sender */\
-	while (!channel_send(chan_quiescence[next_manager], tok, sizeof(*(tok)))) { \
-		if (tasking_done()) break; \
-	} \
-}
+// Termination detection
 
-#define RECV_QSC_MSG(tok) \
-{ \
-	/* Problematic if the sender has already terminated */\
-	while (!channel_receive(chan_quiescence[ID], tok, sizeof(*(tok)))) { \
-		if (tasking_done()) break; \
-	} \
-}
+static PRIVATE int workers_q[MAXNP];
+static PRIVATE int num_workers_q;
+static PRIVATE int notes;
+static PRIVATE bool quiescent;
+static PRIVATE bool after_barrier;
 
-// Global quiescence detection
-// Initiated when partition is quiescent
-static bool global_quiescence(void)
+static inline bool register_idle(struct steal_request *req)
 {
-	struct token tok = { .sender = ID, .val = 1 };
-
-	if (num_partitions == 1)
+	if (req->idle && !req->quiescent && !workers_q[req->pID]) {
+		workers_q[req->pID] = 1;
+		req->quiescent = true;
+		num_workers_q++;
+		notes++;
 		return true;
-
-	// Send and wait until we get the token back
-	SEND_QSC_MSG(&tok);
-
-	for (;;) {
-		RECV_QSC_MSG(&tok);
-		if (tok.sender == ID) break;
-		tok.val++;
-		SEND_QSC_MSG(&tok);
-		if (tasking_done()) break;
 	}
 
-	return tok.val == num_partitions;
+	return false;
 }
 
+static inline bool unregister_idle(struct steal_request *req)
+{
+	if (req->idle && !req->quiescent && workers_q[req->pID]) {
+		workers_q[req->pID] = 0;
+		num_workers_q--;
+		quiescent = false;
+		if (after_barrier) {
+			LOG("Ready for the next barrier\n");
+			after_barrier = false;
+		}
+		notes++;
+		return true;
+	}
+
+	return false;
+}
+
+static inline bool detect_termination(void)
+{
+	if (num_workers_q == my_partition->num_workers_rt && !quiescent) {
+		quiescent = true;
+	}
+
+	if (!after_barrier && quiescent && !channel_peek(chan_barrier)) {
+		channel_send(chan_barrier, &quiescent, sizeof(quiescent));
+		LOG("Termination detected\n");
+		after_barrier = true;
+		return true;
+	}
+
+	return false;
+}
+
+#if 0
 static int loadbalance(void)
 {
 	// Manager determines when a partition has reached quiescence
@@ -840,6 +825,7 @@ static int loadbalance(void)
 
 	return 0;
 }
+#endif
 
 #ifdef STEAL_ADAPTIVE
 // Number of steals after which the current strategy is reevaluated
@@ -962,20 +948,38 @@ static inline void resend_steal_request(void)
 #endif // STEAL_BACKOFF
 
 // Got a steal request that can't be served?
-// Pass it on to a different victim, or send it back to manager to prevent circling
+// Pass it on to a different victim or send it back to manager
 static inline void decline_steal_request(struct steal_request *req)
 {
+	MANAGER {
+		if (unregister_idle(req)) return;
+		register_idle(req) && detect_termination();
+		if (req->try == my_partition->num_workers_rt) {
+			req->try = 0;
+		}
+	}
+
 	PROFILE(SEND_RECV_REQ) {
 
 	requests_declined++;
 	req->try++;
+
+	if (req->try > my_partition->num_workers_rt) print_steal_req(req);
+	assert(req->try <= my_partition->num_workers_rt);
+
 	if (req->try < my_partition->num_workers_rt) {
-		if (my_partition->num_workers_rt > 2) {
-			assert(ID != req->ID);
-		}
+		//if (my_partition->num_workers_rt > 2) {
+		//	if (ID == req->ID) print_steal_req(req);
+		//	assert(ID != req->ID);
+		//}
 		SEND_REQ_WORKER(next_victim(req), req);
 	} else {
 		assert(ID == req->ID);
+		//if (ID != req->ID) {
+		//	assert(req->ID == 0);
+		//	assert(ID == my_partition->manager);
+		//	return;
+		//}
 #ifdef STEAL_BACKOFF
 		if (ID != MASTER_ID && req->quiescent && ++req->rounds == STEAL_BACKOFF_ROUNDS) {
 			last_steal_req = *req;
@@ -990,7 +994,6 @@ static inline void decline_steal_request(struct steal_request *req)
 			steal_backoffs++;
 		} else if (ID != MASTER_ID && req->quiescent) {
 #else
-
 		if (ID != MASTER_ID && req->quiescent) {
 #endif
 			// Don't bother manager; we are quiescent anyway
@@ -1029,6 +1032,10 @@ static void handle_steal_request(struct steal_request *req)
 	Task *task;
 	int loot = 1;
 
+	MANAGER {
+		if (unregister_idle(req)) return;
+	}
+
 	if (req->ID == ID) {
 		// Got own steal request
 		// Forget about it if we have more tasks than previously
@@ -1036,14 +1043,18 @@ static void handle_steal_request(struct steal_request *req)
 #ifdef OPTIMIZE_BARRIER
 			if (req->quiescent) {
 				assert(req->idle);
-				assert(req->pass == num_partitions);
-				assert(req->partition == my_partition->number);
 				req->quiescent = false;
-				PROFILE(SEND_RECV_REQ) SEND_REQ_MANAGER(req);
+				MANAGER {
+					// Elide message
+					assert(unregister_idle(req));
+				} else {
+					PROFILE(SEND_RECV_REQ) SEND_REQ_MANAGER(req);
+				}
 			}
 #else
 			assert(!req->quiescent);
 #endif
+			if (!requested) print_steal_req(req);
 			assert(requested);
 			requested = false;
 			return;
@@ -1071,10 +1082,13 @@ static void handle_steal_request(struct steal_request *req)
 	if (task) {
 		if (req->quiescent) {
 			assert(req->idle);
-			assert(req->pass == num_partitions);
-			assert(req->partition == my_partition->number);
 			req->quiescent = false;
-			PROFILE(SEND_RECV_REQ) SEND_REQ_MANAGER(req);
+			MANAGER {
+				// Elide message
+				assert(unregister_idle(req));
+			} else {
+				PROFILE(SEND_RECV_REQ) SEND_REQ_MANAGER(req);
+			}
 		}
 		PROFILE(SEND_RECV_TASK) {
 
@@ -1203,18 +1217,7 @@ schedule_exit:
 // Executed by worker threads
 int RT_schedule(void)
 {
-	// Managers do the load balancing (possibly in a separate thread)
-	MANAGER {
-		//pthread_t worker;
-		//pthread_attr_t attr;
-		//pthread_attr_init(&attr);
-		//pthread_create(&worker, &attr, schedule, NULL);
-		loadbalance();
-		//pthread_join(worker, NULL);
-		//pthread_attr_destroy(&attr);
-	} else {
-		schedule(NULL);
-	}
+	schedule(NULL);
 
 	return 0;
 }
@@ -1290,10 +1293,13 @@ RT_barrier_exit:
 	struct steal_request req;
 	while (!RECV_REQ(&req)) ;
 	assert(req.idle);
-	assert(req.pass == num_partitions);
-	assert(req.partition == my_partition->number);
 	req.quiescent = false;
-	PROFILE(SEND_RECV_REQ) SEND_REQ_MANAGER(&req);
+	MANAGER {
+		// Elide message
+		assert(unregister_idle(&req));
+	} else {
+		PROFILE(SEND_RECV_REQ) SEND_REQ_MANAGER(&req);
+	}
 	if (req.ID == ID) {
 		assert(requested);
 		requested = false;
@@ -1318,10 +1324,13 @@ RT_barrier_exit:
 		if (RECV_REQ(&req)) {
 			if (req.ID == ID) {
 				assert(req.idle);
-				assert(req.pass == num_partitions);
-				assert(req.partition == my_partition->number);
 				req.quiescent = false;
-				PROFILE(SEND_RECV_REQ) SEND_REQ_MANAGER(&req);
+				MANAGER {
+					// Elide message
+					assert(unregister_idle(&req));
+				} else {
+					PROFILE(SEND_RECV_REQ) SEND_REQ_MANAGER(&req);
+				}
 				assert(requested);
 				requested = false;
 				break;
