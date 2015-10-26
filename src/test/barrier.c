@@ -34,6 +34,7 @@ ASYNC_DECL(consume, int usec, usec);
 #define N 1000
 
 // Measures termination detection latency when all workers are idle
+// Don't forget to modify runtime.c!
 void time_td_delay_min(int argc, char *argv[])
 {
 	double start, end;
@@ -59,6 +60,7 @@ void time_td_delay_min(int argc, char *argv[])
 pthread_barrier_t td_sync;
 
 // Measures termination detection latency when all workers are busy
+// Don't forget to modify runtime.c!
 void time_td_delay_max(int argc, char *argv[])
 {
 	double start, end;
@@ -85,6 +87,7 @@ void time_td_delay_max(int argc, char *argv[])
 	}
 }
 
+#if 0
 extern double td_start, td_end;
 extern double td_elapsed;
 
@@ -103,10 +106,34 @@ void td_additional_delay(int argc, char *argv[])
 
 	TASKING_EXIT();
 }
+#endif
+
+// Measures execution time for N barriers
+void time_barriers(int argc, char *argv[])
+{
+	double start, end;
+	int i;
+
+	TASKING_INIT(&argc, &argv);
+
+	TASKING_BARRIER();
+
+	start = Wtime_msec();
+
+	for (i = 0; i < N; i++) {
+		TASKING_BARRIER();
+	}
+
+	end = Wtime_msec();
+
+	printf("Elapsed wall time: %.2lf ms\n", end - start);
+
+	TASKING_EXIT();
+}
 
 int main(int argc, char *argv[])
 {
-	time_td_delay_max(argc, argv);
+	time_barriers(argc, argv);
 
 	return 0;
 }
