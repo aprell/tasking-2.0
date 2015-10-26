@@ -974,12 +974,6 @@ static inline void decline_steal_request(struct steal_request *req)
 		//}
 		SEND_REQ_WORKER(next_victim(req), req);
 	} else {
-		assert(ID == req->ID);
-		//if (ID != req->ID) {
-		//	assert(req->ID == 0);
-		//	assert(ID == my_partition->manager);
-		//	return;
-		//}
 #ifdef STEAL_BACKOFF
 		if (ID != MASTER_ID && req->quiescent && ++req->rounds == STEAL_BACKOFF_ROUNDS) {
 			last_steal_req = *req;
@@ -1064,6 +1058,7 @@ static void handle_steal_request(struct steal_request *req)
 		}
 	}
 	assert(req->ID != ID);
+
 	PROFILE(ENQ_DEQ_TASK) {
 
 #ifdef STEAL_ADAPTIVE
@@ -1079,6 +1074,7 @@ static void handle_steal_request(struct steal_request *req)
 #endif
 
 	} // PROFILE
+
 	if (task) {
 		if (req->quiescent) {
 			assert(req->idle);
@@ -1225,6 +1221,18 @@ int RT_schedule(void)
 #ifdef OPTIMIZE_BARRIER
 static void run_dummy(UNUSED(void *args))
 {
+	assert(!requested);
+	steal_req.idle = true;
+	steal_req.try = my_partition->num_workers_rt-1;
+#ifdef STEAL_ADAPTIVE
+	steal_req.stealhalf = stealhalf;
+#endif
+	requested = true;
+	requests_sent++;
+#ifdef STEAL_ADAPTIVE
+	stealhalf == true ?  requests_steal_half++ : requests_steal_one++;
+#endif
+	SEND_REQ_WORKER(MASTER_ID, &steal_req);
 	num_tasks_exec_worker--;
 }
 #endif
