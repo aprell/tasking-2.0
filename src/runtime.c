@@ -1182,7 +1182,7 @@ void *schedule(UNUSED(void *args))
 		loot = task->batch;
 #ifdef STEAL_LASTVICTIM
 		last_victim = task->victim;
-		assert(last_victim != 1 && last_victim != ID);
+		assert(last_victim != ID);
 #endif
 		if (loot > 1) {
 			PROFILE(ENQ_DEQ_TASK) task = deque_list_tl_pop(deque_list_tl_prepend(deque, task, loot));
@@ -1274,7 +1274,7 @@ empty_local_queue:
 	loot = task->batch;
 #ifdef STEAL_LASTVICTIM
 	last_victim = task->victim;
-	assert(last_victim != 1 && last_victim != ID);
+	assert(last_victim != ID);
 #endif
 	if (loot > 1) {
 		PROFILE(ENQ_DEQ_TASK) task = deque_list_tl_pop(deque_list_tl_prepend(deque, task, loot));
@@ -1397,7 +1397,7 @@ void RT_force_future_channel(Channel *chan, void *data, unsigned int size)
 		loot = task->batch;
 #ifdef STEAL_LASTVICTIM
 		last_victim = task->victim;
-		assert(last_victim != 1 && last_victim != ID);
+		assert(last_victim != ID);
 #endif
 		if (loot > 1) {
 			PROFILE(ENQ_DEQ_TASK) task = deque_list_tl_pop(deque_list_tl_prepend(deque, task, loot));
@@ -1467,7 +1467,7 @@ void RT_taskwait(atomic_t *num_children)
 		loot = task->batch;
 #ifdef STEAL_LASTVICTIM
 		last_victim = task->victim;
-		assert(last_victim != 1 && last_victim != ID);
+		assert(last_victim != ID);
 #endif
 		if (loot > 1) {
 			PROFILE(ENQ_DEQ_TASK) task = deque_list_tl_pop(deque_list_tl_prepend(deque, task, loot));
