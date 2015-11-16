@@ -120,6 +120,24 @@ static PRIVATE int partition_##id[]
 	int i__; \
 	for (i__ = 0, w = (p)->workers; i__ < (p)->num_workers; i__++, w++)
 
+#ifndef max
+#define max(a, b) \
+({ \
+       typeof(a) __a = (a); \
+       typeof(b) __b = (b); \
+       __a > __b ? __a : __b; \
+})
+#endif
+
+#ifndef min
+#define min(a, b) \
+({ \
+       typeof(a) __a = (a); \
+       typeof(b) __b = (b); \
+       __a < __b ? __a : __b; \
+})
+#endif
+
 int RT_init();
 int RT_exit(void);
 int RT_schedule(void);

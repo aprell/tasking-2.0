@@ -101,6 +101,8 @@ int tasking_internal_init(int *argc UNUSED, char ***argv UNUSED)
 	current_task->start = 0;
 	current_task->cur = 0;
 	current_task->end = 0;
+	current_task->chunks = 0;
+	current_task->sst = 0;
 
 	num_tasks_exec_worker = 0;
 
@@ -123,6 +125,7 @@ PROFILE_EXTERN_DECL(IDLE);
 
 extern PRIVATE unsigned int requests_sent, requests_handled;
 extern PRIVATE unsigned int requests_declined, tasks_sent;
+extern PRIVATE unsigned int tasks_split;
 #ifdef STEAL_BACKOFF
 extern PRIVATE unsigned int requests_resent;
 #endif
@@ -146,6 +149,7 @@ int tasking_internal_statistics(void)
 	printf("Worker %d: %u steal requests declined\n", ID, requests_declined);
 	printf("Worker %d: %u tasks executed\n", ID, num_tasks_exec_worker);
 	printf("Worker %d: %u tasks sent\n", ID, tasks_sent);
+	printf("Worker %d: %u tasks split\n", ID, tasks_split);
 #ifdef STEAL_BACKOFF
 	printf("Worker %d: %u steal requests resent\n", ID, requests_resent);
 #endif

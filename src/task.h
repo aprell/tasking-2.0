@@ -8,7 +8,7 @@
 
 #define TASK_SUCCESS 0
 #define TASK_ERROR_BASE 400
-#define TASK_DATA_SIZE (128 - sizeof(long))
+#define TASK_DATA_SIZE (128 - 3 * sizeof(long))
 #define TASK_SIZE sizeof(Task)
 
 typedef struct task Task;
@@ -27,6 +27,7 @@ struct task {
 	int victim;
 	bool is_loop;
 	long start, cur, end;
+	long chunks, sst;
 	// Task body carrying user data
 	char data[TASK_DATA_SIZE];
 };
@@ -45,6 +46,8 @@ static inline Task *task_zero(Task *task)
 	task->start = 0;
 	task->cur = 0;
 	task->end = 0;
+	task->chunks = 0;
+	task->sst = 0;
 
 	return task;
 }
