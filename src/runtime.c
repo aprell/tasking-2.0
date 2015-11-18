@@ -1160,7 +1160,9 @@ void *schedule(UNUSED(void *args))
 		}
 
 		// (2) Work-stealing request
-		assert(requested);
+		if (!requested)
+			UPDATE();
+
 		PROFILE(IDLE) {
 
 		while (!RECV_TASK(&task)) {
@@ -1259,7 +1261,9 @@ empty_local_queue:
 	if (num_workers == 1)
 		return 0;
 
-	assert(requested);
+	if (!requested)
+		UPDATE();
+
 	PROFILE(IDLE) {
 
 	while (!RECV_TASK(&task)) {
@@ -1526,7 +1530,9 @@ Task *pop(void)
 	if (!task) REQ_CLOSE();
 #endif
 
-	UPDATE();
+	if (task && !task->is_loop) {
+		UPDATE();
+	}
 
 	// Check if someone requested to steal from us
 	while (RECV_REQ(&req)) {
@@ -1551,7 +1557,9 @@ Task *pop_child(void)
 		task = deque_list_tl_pop_child(deque, get_current_task());
 	}
 
-	UPDATE();
+	if (task && !task->is_loop) {
+		UPDATE();
+	}
 
 	// Check if someone requested to steal from us
 	while (RECV_REQ(&req)) {
