@@ -1,5 +1,5 @@
 # Common definitions
-CC = icc -mmic
+CC = icc
 CPPFLAGS += -D_GNU_SOURCE
 CFLAGS += -O2 -Wall -Wcheck $(DISABLE) $(INCLUDE)
 LDFLAGS +=
