@@ -71,16 +71,22 @@ static double task_size(double base, int i)
 	return tsize;
 }
 
+#define POLL_INTERVAL 1 // in microseconds
+static PRIVATE double poll_elapsed;
+
 // Computes for the duration of usec microseconds
 void consume(double usec)
 {
 	double start, end, elapsed;
+	double RT_poll_elapsed = 0;
+	poll_elapsed = POLL_INTERVAL;
 
 	start = Wtime_usec();
 	end = usec;
 
 	for (;;) {
 		elapsed = Wtime_usec() - start;
+		elapsed -= RT_poll_elapsed;
 		if (elapsed >= end)
 			break;
 		// Do some dummy computation
@@ -90,6 +96,12 @@ void consume(double usec)
 			fib = f1 + f2;
 			f2 = f1;
 			f1 = fib;
+		}
+		if (elapsed >= poll_elapsed) {
+			double RT_poll_start = Wtime_usec();
+			(void)RT_check_for_steal_requests();
+			RT_poll_elapsed += Wtime_usec() - RT_poll_start;
+			poll_elapsed += POLL_INTERVAL;
 		}
 	}
 	//printf("Elapsed: %.2lfus\n", elapsed);
