@@ -9,11 +9,13 @@
 *.swp
 *.DS_Store
 tags
+stuff
 
 src/channel_shm/fib
 src/channel_shm/shift
 src/channel_shm/throughput
 src/channel_shm/utest
+src/channel_mpi
 
 src/test/*.tmp
 src/test/*.ref
@@ -37,3 +39,4 @@ src/uts
 src/uts-seq*
 src/uts-par*
 src/lu*
+src/loopsched
