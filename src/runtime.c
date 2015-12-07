@@ -270,7 +270,6 @@ int RT_init(void)
 #endif
 	PARTITION_SET();
 
-	MANAGER LOG("Manager %d --> Manager %d\n", ID, next_manager);
 	//LOG("Worker %d: in partition %d\n", ID, my_partition->number);
 
 	deque = deque_list_tl_new();
@@ -574,7 +573,6 @@ static inline bool unregister_idle(struct steal_request *req)
 		num_workers_q--;
 		quiescent = false;
 		if (after_barrier) {
-			LOG("Ready for the next barrier\n");
 			after_barrier = false;
 		}
 		notes++;
@@ -592,7 +590,6 @@ static inline bool detect_termination(void)
 
 	if (!after_barrier && quiescent && !channel_peek(chan_barrier)) {
 		channel_send(chan_barrier, &quiescent, sizeof(quiescent));
-		LOG("Termination detected\n");
 		after_barrier = true;
 		return true;
 	}
