@@ -268,15 +268,12 @@ int RT_init(void)
 
 	int i;
 
-#if PARTITIONS == 1
-	PARTITION_ASSIGN_xlarge(1);
-#elif PARTITIONS == 2
-	PARTITION_ASSIGN_X(2);
-	PARTITION_ASSIGN_Y(1);
+#ifndef MANAGER_ID
+#define MANAGER_ID 0
 #endif
-	PARTITION_SET();
 
-	//LOG("Worker %d: in partition %d\n", ID, my_partition->number);
+	PARTITION_ASSIGN_xlarge(MANAGER_ID);
+	PARTITION_SET();
 
 	deque = deque_list_tl_new();
 
