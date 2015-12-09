@@ -54,25 +54,29 @@ struct steal_request {
 #endif
 	bool idle;		// ID has nothing left to work on?
 	bool quiescent;	// manager assumes ID is in a quiescent state?
+	bool is_update; // forwarded steal request that informs the manager that
+	                // the requesting worker is no longer idle?
 #ifdef STEAL_ADAPTIVE
 	bool stealhalf; // true ? attempt steal-half : attempt steal-one
 #endif
 #if defined STEAL_BACKOFF && defined STEAL_ADAPTIVE
-	char __[5];		// pad to cache line
+	char __[4];		// pad to cache line
 #elif defined STEAL_BACKOFF
-	char __[6];     // pad to cache line
+	char __[5];     // pad to cache line
 #elif defined STEAL_ADAPTIVE
-	char __[9];     // pad to cache line
+	char __[8];     // pad to cache line
 #else
-	char __[10];   	// pad to cache line
+	char __[9];   	// pad to cache line
 #endif
 };
 
 static inline void print_steal_req(struct steal_request *req)
 {
-	LOG("{ .ID = %d, .try = %d, .pass = %d, .partition = %d, .pID = %d, .idle = %s, .quiescent = %s }\n",
-			req->ID, req->try, req->pass, req->partition, req->pID,
-			req->idle == true ? "Y" : "N", req->quiescent == true ? "Y" : "N");
+	LOG("{ .ID = %d, .try = %d, .pass = %d, .partition = %d, .pID = %d, "
+		".idle = %s, .quiescent = %s, .is_update = %s }\n",
+		req->ID, req->try, req->pass, req->partition, req->pID,
+		req->idle == true ? "Y" : "N", req->quiescent == true ? "Y" : "N",
+		req->is_update == true ? "Y" : "N");
 }
 
 // .try == 0, .pass == 0, .idle == false, .quiescence == false
@@ -504,16 +508,20 @@ static inline int leapfrog(struct steal_request *req)
 #endif // STEAL_LEAPFROG
 
 static inline void UPDATE(void);
-static inline void send_steal_request(bool idle);
+static inline void send_steal_request(bool);
 static inline void decline_steal_request(struct steal_request *);
 static inline void decline_all_steal_requests(void);
 static inline void split_loop(Task *, struct steal_request *);
 
+static inline bool register_idle(struct steal_request *);
+static inline bool unregister_idle(struct steal_request *);
+static inline bool detect_termination(void);
+
 #define SEND_REQ(chan, req) \
 do { \
 	int __nfail = 0; \
-	/* Problematic if the target worker has already left scheduling */\
-	/* ==> send to full channel will block the sender */\
+	/* Problematic if the target worker has already left scheduling */ \
+	/* ==> send to full channel will block the sender */ \
 	while (!channel_send(chan, req, sizeof(*(req)))) { \
 		if (++__nfail % 3 == 0) { \
 			LOG("*** Worker %d: blocked on channel send\n", ID); \
@@ -532,7 +540,16 @@ static inline bool RECV_REQ(struct steal_request *req)
 
 	PROFILE(SEND_RECV_REQ) {
 		ret = channel_receive(chan_requests[ID], req, sizeof(*(req)));
-	}
+		MANAGER {
+			// Handle update messages
+			while (ret && unregister_idle(req)) {
+				ret = channel_receive(chan_requests[ID], req, sizeof(*(req)));
+			}
+			// Are all workers idle?
+			ret && register_idle(req) && detect_termination();
+			assert(ret && !req->is_update || !ret);
+		}
+	} // PROFILE
 
 	return ret;
 }
@@ -549,6 +566,29 @@ static inline bool RECV_TASK(Task **task)
 }
 
 // Termination detection
+
+#define NOTIFY_MANAGER(req) \
+do { \
+	assert((req)->quiescent && (req)->idle); \
+	(req)->quiescent = false; \
+	(req)->is_update = true; \
+	MANAGER { \
+		/* Elide message */ \
+		assert(unregister_idle(req)); \
+	} else { \
+		PROFILE(SEND_RECV_REQ) SEND_REQ_MANAGER(req); \
+	} \
+} while (0)
+
+#define FORGET_REQ(req) \
+do { \
+	assert((req)->ID == ID); \
+	if ((req)->quiescent) { \
+		NOTIFY_MANAGER(req); \
+	} \
+	assert(requested); \
+	requested = false; \
+} while (0)
 
 static PRIVATE int workers_q[MAXNP];
 static PRIVATE int num_workers_q;
@@ -572,6 +612,7 @@ static inline bool register_idle(struct steal_request *req)
 static inline bool unregister_idle(struct steal_request *req)
 {
 	if (req->idle && !req->quiescent && workers_q[req->pID]) {
+		assert(req->is_update);
 		workers_q[req->pID] = 0;
 		num_workers_q--;
 		quiescent = false;
@@ -588,11 +629,13 @@ static inline bool unregister_idle(struct steal_request *req)
 static inline bool detect_termination(void)
 {
 	if (num_workers_q == my_partition->num_workers_rt && !quiescent) {
+		//LOG("Termination detected\n");
 		quiescent = true;
 	}
 
 	if (!after_barrier && quiescent && !channel_peek(chan_barrier)) {
 		channel_send(chan_barrier, &quiescent, sizeof(quiescent));
+		//LOG("Termination confirmed\n");
 		after_barrier = true;
 		return true;
 	}
@@ -952,8 +995,6 @@ static inline void resend_steal_request(void)
 static inline void decline_steal_request(struct steal_request *req)
 {
 	MANAGER {
-		if (unregister_idle(req)) return;
-		register_idle(req) && detect_termination();
 		if (req->try == my_partition->num_workers_rt) {
 			req->try = 0;
 		}
@@ -964,7 +1005,6 @@ static inline void decline_steal_request(struct steal_request *req)
 	requests_declined++;
 	req->try++;
 
-	if (req->try > my_partition->num_workers_rt) print_steal_req(req);
 	assert(req->try <= my_partition->num_workers_rt);
 
 	if (req->try < my_partition->num_workers_rt) {
@@ -1026,29 +1066,20 @@ static void handle_steal_request(struct steal_request *req)
 	Task *task;
 	int loot = 1;
 
-	MANAGER {
-		if (unregister_idle(req)) return;
-	}
-
 	if (req->ID == ID) {
+		task = get_current_task();
+		long tasks_left = task && task->is_loop ? abs(task->end - task->cur) : 0;
 		// Got own steal request
 		// Forget about it if we have more tasks than previously
-		if (deque_list_tl_num_tasks(deque) > REQ_THRESHOLD) {
+		if (deque_list_tl_num_tasks(deque) > REQ_THRESHOLD ||
+			tasks_left > REQ_THRESHOLD) {
 #ifdef OPTIMIZE_BARRIER
 			if (req->quiescent) {
-				assert(req->idle);
-				req->quiescent = false;
-				MANAGER {
-					// Elide message
-					assert(unregister_idle(req));
-				} else {
-					PROFILE(SEND_RECV_REQ) SEND_REQ_MANAGER(req);
-				}
+				NOTIFY_MANAGER(req);
 			}
 #else
 			assert(!req->quiescent);
 #endif
-			if (!requested) print_steal_req(req);
 			assert(requested);
 			requested = false;
 			return;
@@ -1077,14 +1108,7 @@ static void handle_steal_request(struct steal_request *req)
 
 	if (task) {
 		if (req->quiescent) {
-			assert(req->idle);
-			req->quiescent = false;
-			MANAGER {
-				// Elide message
-				assert(unregister_idle(req));
-			} else {
-				PROFILE(SEND_RECV_REQ) SEND_REQ_MANAGER(req);
-			}
+			NOTIFY_MANAGER(req);
 		}
 		PROFILE(SEND_RECV_TASK) {
 
@@ -1131,10 +1155,14 @@ int RT_check_for_steal_requests(void)
 		// (3) Decline (or ignore) steal request
 		if (!deque_list_tl_empty(deque)) {
 			handle_steal_request(&req);
-		} else if (SPLITTABLE(this) && req.ID != ID) {
-			split_loop(this, &req);
+		} else if (SPLITTABLE(this)) {
+			if (req.ID != ID) {
+				split_loop(this, &req);
+			} else {
+				FORGET_REQ(&req);
+			}
 		} else {
-			handle_steal_request(&req);
+			decline_steal_request(&req);
 		}
 		n++;
 	}
@@ -1302,14 +1330,7 @@ RT_barrier_exit:
 #ifdef OPTIMIZE_BARRIER
 	struct steal_request req;
 	while (!RECV_REQ(&req)) ;
-	assert(req.idle);
-	req.quiescent = false;
-	MANAGER {
-		// Elide message
-		assert(unregister_idle(&req));
-	} else {
-		PROFILE(SEND_RECV_REQ) SEND_REQ_MANAGER(&req);
-	}
+	NOTIFY_MANAGER(&req);
 	if (req.ID == ID) {
 		assert(requested);
 		requested = false;
@@ -1333,14 +1354,7 @@ RT_barrier_exit:
 		struct steal_request req;
 		if (RECV_REQ(&req)) {
 			if (req.ID == ID) {
-				assert(req.idle);
-				req.quiescent = false;
-				MANAGER {
-					// Elide message
-					assert(unregister_idle(&req));
-				} else {
-					PROFILE(SEND_RECV_REQ) SEND_REQ_MANAGER(&req);
-				}
+				NOTIFY_MANAGER(&req);
 				assert(requested);
 				requested = false;
 				break;
@@ -1533,8 +1547,12 @@ Task *pop(void)
 	while (RECV_REQ(&req)) {
 		// If we just popped a loop task, we may split right here
 		// Makes handle_steal_request simpler
-		if (deque_list_tl_empty(deque) && SPLITTABLE(task) && req.ID != ID) {
-			split_loop(task, &req);
+		if (deque_list_tl_empty(deque) && SPLITTABLE(task)) {
+			if (req.ID != ID) {
+				split_loop(task, &req);
+			} else {
+				FORGET_REQ(&req);
+			}
 		} else {
 			handle_steal_request(&req);
 		}
@@ -1560,8 +1578,12 @@ Task *pop_child(void)
 	while (RECV_REQ(&req)) {
 		// If we just popped a loop task, we may split right here
 		// Makes handle_steal_request simpler
-		if (deque_list_tl_empty(deque) && SPLITTABLE(task) && req.ID != ID) {
-			split_loop(task, &req);
+		if (deque_list_tl_empty(deque) && SPLITTABLE(task)) {
+			if (req.ID != ID) {
+				split_loop(task, &req);
+			} else {
+				FORGET_REQ(&req);
+			}
 		} else {
 			handle_steal_request(&req);
 		}
@@ -1588,13 +1610,17 @@ bool RT_loop_split(void)
 	}
 
 	// Split if possible
-	if (SPLITTABLE(this) && req.ID != ID) {
-		split_loop(this, &req);
-		return true;
+	if (SPLITTABLE(this)) {
+		if (req.ID != ID) {
+			split_loop(this, &req);
+			return true;
+		} else {
+			FORGET_REQ(&req);
+			return false;
+		}
 	}
 
-	// Decline (or ignore) steal request
-	handle_steal_request(&req);
+	decline_steal_request(&req);
 
 	return false;
 }
@@ -1674,14 +1700,10 @@ static void split_loop(Task *task, struct steal_request *req)
 
 	} // PROFILE
 
-	//LOG("Worker %2d: Sending (%ld, %ld) to worker %d\n", ID, dup->start, dup->end, req->ID);
+	//LOG("Worker %2d: Sending [%ld, %ld) to worker %d\n", ID, dup->start, dup->end, req->ID);
 
 	if (req->quiescent) {
-		assert(req->idle);
-		assert(req->pass == num_partitions);
-		assert(req->partition == my_partition->number);
-		req->quiescent = false;
-		PROFILE(SEND_RECV_REQ) SEND_REQ_MANAGER(req);
+		NOTIFY_MANAGER(req);
 	}
 
 	PROFILE(SEND_RECV_TASK) {
@@ -1706,5 +1728,5 @@ static void split_loop(Task *task, struct steal_request *req)
 
 	} // PROFILE
 
-	//LOG("Worker %2d: Continuing with (%ld, %ld)\n", ID, task->start, task->end);
+	//LOG("Worker %2d: Continuing with [%ld, %ld)\n", ID, task->cur, task->end);
 }
