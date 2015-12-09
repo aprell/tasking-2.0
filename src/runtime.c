@@ -1160,8 +1160,7 @@ void *schedule(UNUSED(void *args))
 		}
 
 		// (2) Work-stealing request
-		if (!requested)
-			UPDATE();
+		assert(requested);
 
 		PROFILE(IDLE) {
 
@@ -1261,8 +1260,7 @@ empty_local_queue:
 	if (num_workers == 1)
 		return 0;
 
-	if (!requested)
-		UPDATE();
+	assert(requested);
 
 	PROFILE(IDLE) {
 
@@ -1530,7 +1528,7 @@ Task *pop(void)
 	if (!task) REQ_CLOSE();
 #endif
 
-	if (task && !task->is_loop) {
+	if (task && !task->is_loop || !task) {
 		UPDATE();
 	}
 
@@ -1557,7 +1555,7 @@ Task *pop_child(void)
 		task = deque_list_tl_pop_child(deque, get_current_task());
 	}
 
-	if (task && !task->is_loop) {
+	if (task && !task->is_loop || !task) {
 		UPDATE();
 	}
 
