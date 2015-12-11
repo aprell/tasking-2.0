@@ -1024,7 +1024,11 @@ int RT_schedule(void)
 static void run_dummy(UNUSED(void *args))
 {
 	assert(!requested);
+#if MANAGER_ID == MASTER_ID
+	steal_req.idle = false;
+#else
 	steal_req.idle = true;
+#endif
 	steal_req.try = my_partition->num_workers_rt-1;
 #ifdef STEAL_ADAPTIVE
 	steal_req.stealhalf = stealhalf;
