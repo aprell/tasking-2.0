@@ -323,8 +323,11 @@ do { \
 	__task->start = (s); \
 	__task->cur = (s); \
 	__task->end = (e); \
-	/* Chunk size */ \
+	/* Chunk size, at least 1 */ \
 	__task->chunks = abs((e) - (s)) / num_workers; \
+	if (__task->chunks == 0) { \
+		__task->chunks = 1; \
+	} \
 	__task->sst = 1; \
 	\
 	__d = (struct f##_task_data *)__task->data; \

@@ -1422,6 +1422,8 @@ static inline long split_half(Task *task)
 // Split iteration range based on the number of workers
 static inline long split_guided(Task *task)
 {
+	assert(task->chunks > 0);
+
 	long iters_left = abs(task->end - task->cur);
 
 	assert(iters_left > task->sst);
