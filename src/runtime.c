@@ -19,10 +19,11 @@ UTEST_MAIN() {}
 #define PARTITIONS 1
 #include "partition.c"
 
-// Supported loop-splitting strategies (-DSPLIT=[half|guided])
+// Supported loop-splitting strategies (-DSPLIT=[half|guided|adaptive])
 // Default is split-half (-DSPLIT=half)
 #define half 0
 #define guided 1
+#define adaptive 2
 
 #define LOG(...) { printf(__VA_ARGS__); fflush(stdout); }
 #define UNUSED(x) x __attribute__((unused))
@@ -1406,11 +1407,11 @@ bool RT_loop_split(void)
 	#define SPLIT_FUNC split_half
 #elif SPLIT == guided
 	#define SPLIT_FUNC split_guided
+#elif SPLIT == adaptive
+	#define SPLIT_FUNC split_adaptive
 #else // Default is split-half
 	#define SPLIT_FUNC split_half
 #endif
-
-#define IDLE_WORKERS (channel_peek(chan_requests[ID]))
 
 // Split iteration range in half
 static inline long split_half(Task *task)
@@ -1418,16 +1419,30 @@ static inline long split_half(Task *task)
     return task->cur + (task->end - task->cur) / 2;
 }
 
-// Split iteration range guided by previous splits
+// Split iteration range based on the number of workers
 static inline long split_guided(Task *task)
 {
-	assert(task->chunks >= 2 && task->chunks <= num_workers);
+	long iters_left = abs(task->end - task->cur);
 
-	long iters_total = abs(task->end - task->start);
+	assert(iters_left > task->sst);
+
+	if (iters_left <= task->chunks) {
+		return split_half(task);
+	}
+
+	//LOG("Worker %2d: sending %ld iterations\n", ID, task->chunks);
+
+	return task->end - task->chunks;
+}
+
+#define IDLE_WORKERS (channel_peek(chan_requests[ID]))
+
+// Split iteration range based on the number of steal requests
+static inline long split_adaptive(Task *task)
+{
 	long iters_left = abs(task->end - task->cur);
 	long num_idle, chunk;
 
-	assert(iters_total >= iters_left);
 	assert(iters_left > task->sst);
 
 	//LOG("Worker %2d: %ld of %ld iterations left\n", ID, iters_left, iters_total);
@@ -1438,12 +1453,9 @@ static inline long split_guided(Task *task)
 	//LOG("Worker %2d: have %ld steal requests\n", ID, num_idle);
 
 	// Every thief receives a chunk
-	chunk = max(iters_total / (num_idle + 1), 1);
+	chunk = max(iters_left / (num_idle + 1), 1);
 
-	if (iters_left <= chunk) {
-		// Make sure one task will be left for us
-		chunk = iters_left - 1;
-	}
+	assert(iters_left > chunk);
 
 	//LOG("Worker %2d: sending %ld iterations\n", ID, chunk);
 
@@ -1452,7 +1464,6 @@ static inline long split_guided(Task *task)
 
 static void split_loop(Task *task, struct steal_request *req)
 {
-	assert(req->ID != ID);
 	Task *dup;
 	long split;
 
@@ -1471,9 +1482,6 @@ static void split_loop(Task *task, struct steal_request *req)
 	dup->start = split;
 	dup->cur = split;
 	dup->end = task->end;
-#if SPLIT == guided
-	dup->chunks = max(task->chunks-1, 2);
-#endif
 
 	} // PROFILE
 
@@ -1499,7 +1507,6 @@ static void split_loop(Task *task, struct steal_request *req)
 
 	// Current task continues with lower half of iterations
 	task->end = split;
-	task->chunks = 2;
 
 	tasks_split++;
 
