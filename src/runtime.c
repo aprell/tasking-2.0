@@ -646,7 +646,9 @@ static inline bool detect_termination(void)
 
 #ifdef STEAL_ADAPTIVE
 // Number of steals after which the current strategy is reevaluated
+#ifndef STEAL_ADAPTIVE_INTERVAL
 #define STEAL_ADAPTIVE_INTERVAL 25
+#endif
 PRIVATE int num_tasks_exec_recently;
 static PRIVATE int num_steals_exec_recently;
 static PRIVATE bool stealhalf;
