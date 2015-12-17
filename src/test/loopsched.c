@@ -11,6 +11,7 @@
 
 static int num_tasks;
 static int granularity; // in microseconds
+static int *tasks; // of random size
 static PRIVATE unsigned int rand_seed;
 static double increment;
 static double decrement;
@@ -19,44 +20,52 @@ enum { plain, randomized, increasing, decreasing, looptasks };
 static int benchmark = plain; // default
 static bool use_looptasks;
 
+static int compute_random_task_size(int base)
+{
+	int tsize = base;
+	int r = rand_r(&rand_seed) % 15; // 0..14
+
+	switch (r) {
+		case  0 ...  4: break;					// ca. 33.3%
+		case  5 ...  8: tsize *= 10; break;		// ca. 26.6%
+		case  9 ... 11: tsize *= 100; break;	// ca. 20.0%
+		case 12 ... 13: tsize *= 1000; break;	// ca. 13.3%
+		case 14: tsize *= 10000; break;			// ca.  6.6%
+	}
+#if 0
+	r = rand_r(&rand_seed) % 31; // 0..30
+	switch (r) {
+		case  0 ... 15: break;					// ca. 51.6%
+		case 16 ... 23: tsize *= 10; break;		// ca. 25.8%
+		case 24 ... 27: tsize *= 100; break;	// ca. 12.9%
+		case 28 ... 29: tsize *= 1000; break;	// ca.  6.5%
+		case 30: tsize *= 10000; break;			// ca.  3.2%
+	}
+#endif
+#if 0
+	r = rand_r(&rand_seed) % 5; // 0..4
+	switch (r) {
+		case 4: tsize *= 10;
+		case 3: tsize *= 10;
+		case 2: tsize *= 10;
+		case 1: tsize *= 10;
+		case 0: break;
+	}
+#endif
+
+	return tsize;
+}
+
 // Returns a constant, randomized, linearly increasing or decreasing task size
 static double task_size(double base, int i)
 {
 	double tsize = base;
-	int r;
 
 	switch (benchmark) {
 	case plain:
 		break;
 	case randomized:
-		r = rand_r(&rand_seed) % 15; // 0..14
-		switch (r) {
-			case  0 ...  4: break;					// ca. 33.3%
-			case  5 ...  8: tsize *= 10; break;		// ca. 26.6%
-			case  9 ... 11: tsize *= 100; break;	// ca. 20.0%
-			case 12 ... 13: tsize *= 1000; break;	// ca. 13.3%
-			case 14: tsize *= 10000; break;			// ca.  6.6%
-		}
-#if 0
-		r = rand_r(&rand_seed) % 31; // 0..30
-		switch (r) {
-			case  0 ... 15: break;					// ca. 51.6%
-			case 16 ... 23: tsize *= 10; break;		// ca. 25.8%
-			case 24 ... 27: tsize *= 100; break;	// ca. 12.9%
-			case 28 ... 29: tsize *= 1000; break;	// ca.  6.5%
-			case 30: tsize *= 10000; break;			// ca.  3.2%
-		}
-#endif
-#if 0
-		r = rand_r(&rand_seed) % 5; // 0..4
-		switch (r) {
-			case 4: tsize *= 10;
-			case 3: tsize *= 10;
-			case 2: tsize *= 10;
-			case 1: tsize *= 10;
-			case 0: break;
-		}
-#endif
+		tsize = tasks[i];
 		break;
 	case increasing:
 		tsize += i * increment;
@@ -154,7 +163,7 @@ static struct option options[] = {
 
 static void getoptions(int *argc, char **argv[])
 {
-	int option_idx, c;
+	int option_idx, c, i;
 	double arg = 0.0;
 
 	while ((c = getopt_long(*argc, *argv, "lri:d:", options, &option_idx)) != -1) {
@@ -200,6 +209,12 @@ static void getoptions(int *argc, char **argv[])
 			   num_tasks, granularity, 10 * granularity, 100 * granularity,
 			   1000 * granularity, 10000 * granularity,
 			   use_looptasks ? "(loop tasks)" : "" );
+		// Generate workload
+		tasks = malloc(num_tasks * sizeof(int));
+		assert(tasks && "Out of memory");
+		for (i = 0; i < num_tasks; i++) {
+			tasks[i] = compute_random_task_size(granularity);
+		}
 		break;
 	case increasing:
 		increment = (arg-granularity) / (num_tasks-1);
@@ -239,6 +254,8 @@ int main(int argc, char *argv[])
 	// This should be moved inside TASKING_EXIT()
 	TASKING_BARRIER();
 	TASKING_EXIT();
+
+	free(tasks);
 
 	return 0;
 }
