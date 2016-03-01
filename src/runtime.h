@@ -3,6 +3,7 @@
 
 #include "tasking_internal.h"
 #include "channel.h"
+#include "overload_RT_force_future_channel.h"
 
 typedef struct partition {
 	int number;			// index of partition: 0 <= number < num_partitions
@@ -143,6 +144,7 @@ int RT_exit(void);
 int RT_schedule(void);
 int RT_barrier(void);
 void RT_force_future_channel(Channel *chan, void *data, unsigned int size);
+void RT_force_future_channel(Channel *chan);
 void RT_taskwait(atomic_t *num_children);
 
 // These functions implement the load balancing between workers

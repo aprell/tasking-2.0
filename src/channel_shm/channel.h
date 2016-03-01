@@ -26,6 +26,7 @@ enum {
 
 Channel *channel_alloc(unsigned int size, unsigned int n, int impl);
 Channel *channel_alloc(unsigned int size, unsigned int n); // MPMC
+Channel *channel_alloc(int impl);
 
 void channel_free(Channel *chan);
 

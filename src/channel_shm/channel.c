@@ -107,6 +107,32 @@ Channel *channel_alloc(unsigned int size, unsigned int n)
 	return channel_alloc(size, n, MPMC);
 }
 
+// Dummy channel: nothing is ever written to or read from it
+Channel *channel_alloc(int impl)
+{
+	Channel *chan = (Channel *)malloc(sizeof(Channel));
+	if (!chan) {
+		fprintf(stderr, "Warning: malloc failed\n");
+		return NULL;
+	}
+
+	chan->buffer = NULL;
+
+	pthread_mutex_init(&chan->head_lock, NULL);
+	pthread_mutex_init(&chan->tail_lock, NULL);
+
+	//XXX
+	chan->owner = -1;
+	chan->impl = impl;
+	chan->closed = 0;
+	chan->size = 0;
+	chan->itemsize = 0;
+	chan->head = 0;
+	chan->tail = 0;
+
+	return chan;
+}
+
 void channel_free(Channel *chan)
 {
 	if (!chan)

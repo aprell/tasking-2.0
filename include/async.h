@@ -164,6 +164,33 @@ void fname##_task_func(struct fname##_task_data *__d) \
 	ret __tmp = fname(args); \
 	channel_send(chanref_get(__f), &__tmp, sizeof(__tmp)); \
 }
+#define VOID_FUTURE_DECL(fname, decls, args...) \
+struct fname##_task_data { \
+	decls; \
+	future __f; \
+}; \
+static inline future new_##fname##_future(void) \
+{ \
+	future f; \
+	if (__future_void_freelist_items > 0) { \
+		f = __future_void_freelist[--__future_void_freelist_items]; \
+		assert(channel_closed(chanref_get(f))); \
+		channel_open(chanref_get(f)); \
+		return f; \
+	} \
+	chanref_set(&f, channel_alloc(SPSC)); \
+	return f; \
+} \
+void fname##_task_func(struct fname##_task_data *__d) \
+{ \
+	Task *this = get_current_task(); \
+	assert(!is_root_task(this)); \
+	assert((struct fname##_task_data *)this->data == __d); \
+	\
+	UNPACK(__d, args, __f); \
+	fname(args); \
+	channel_close(chanref_get(__f)); \
+}
 #else
 #define FUTURE_DECL(ret, fname, decls, args...) \
 struct fname##_task_data { \
@@ -186,6 +213,27 @@ void fname##_task_func(struct fname##_task_data *__d) \
 	ret __tmp = fname(args); \
 	channel_send(chanref_get(__f), &__tmp, sizeof(__tmp)); \
 }
+#define VOID_FUTURE_DECL(fname, decls, args...) \
+struct fname##_task_data { \
+	decls; \
+	future __f; \
+}; \
+static inline future new_##fname##_future(void) \
+{ \
+	future f; \
+	chanref_set(&f, channel_alloc(SPSC)); \
+	return f; \
+} \
+void fname##_task_func(struct fname##_task_data *__d) \
+{ \
+	Task *this = get_current_task(); \
+	assert(!is_root_task(this)); \
+	assert((struct fname##_task_data *)this->data == __d); \
+	\
+	UNPACK(__d, args, __f); \
+	fname(args); \
+	channel_close(chanref_get(__f)); \
+}
 #endif // CACHE_FUTURES
 
 // Cilk-style fork/join
@@ -203,6 +251,22 @@ void fname##_task_func(struct fname##_task_data *__d) \
 	\
 	UNPACK(__d, args, __r, num_children); \
 	*__r = fname(args); \
+	atomic_dec(num_children); \
+}
+
+#define VOID_TASK_DECL(fname, decls, args...) \
+struct fname##_task_data { \
+	decls; \
+	atomic_t *num_children; \
+}; \
+void fname##_task_func(struct fname##_task_data *__d) \
+{ \
+	Task *this = get_current_task(); \
+	assert(!is_root_task(this)); \
+	assert((struct fname##_task_data *)this->data == __d); \
+	\
+	UNPACK(__d, args, num_children); \
+	fname(args); \
 	atomic_dec(num_children); \
 }
 
@@ -293,6 +357,15 @@ extern void RT_force_future_channel(Channel *, void *, unsigned int);
 	} \
 	__tmp; \
 })
+#define __AWAIT_VOID(f) \
+do { \
+	RT_force_future_channel(chanref_get(f)); \
+	if (__future_void_freelist_items < FUTURE_FREELIST_SIZE) { \
+		__future_void_freelist[__future_void_freelist_items++] = (f); \
+	} else { \
+		channel_free(chanref_get(f)); \
+	} \
+} while (0)
 #else
 #define __AWAIT(f, type) \
 ({ \
@@ -301,6 +374,11 @@ extern void RT_force_future_channel(Channel *, void *, unsigned int);
 	channel_free(chanref_get(f)); \
 	__tmp; \
 })
+#define __AWAIT_VOID(f) \
+do { \
+	RT_force_future_channel(chanref_get(f)); \
+	channel_free(chanref_get(f)); \
+} while (0)
 #endif // CACHE_FUTURES
 
 extern void RT_taskwait(atomic_t *num_children);

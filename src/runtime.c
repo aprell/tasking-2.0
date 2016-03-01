@@ -1218,6 +1218,77 @@ RT_force_future_channel_return:
 	return;
 }
 
+void RT_force_future_channel(Channel *chan)
+{
+	Task *task;
+	Task *this = get_current_task();
+	struct steal_request req;
+	int loot;
+
+	assert(channel_impl(chan) == SPSC);
+
+	if (channel_closed(chan))
+		goto RT_force_future_channel_return;
+
+	while ((task = pop_child()) != NULL) {
+		PROFILE(RUN_TASK) run_task(task);
+		PROFILE(ENQ_DEQ_TASK) deque_list_tl_task_cache(deque, task);
+		if (channel_closed(chan))
+			goto RT_force_future_channel_return;
+	}
+
+	assert(get_current_task() == this);
+
+	while (!channel_closed(chan)) {
+		send_steal_request(false);
+		PROFILE(IDLE) {
+
+		while (!RECV_TASK(&task)) {
+			// We might inadvertently remove our own steal request in
+			// handle_steal_request, so:
+			PROFILE_STOP(IDLE);
+			if (!requested) {
+				send_steal_request(false);
+			}
+			// Check if someone requested to steal from us
+			while (RECV_REQ(&req))
+				handle_steal_request(&req);
+			PROFILE_START(IDLE);
+			if (channel_closed(chan)) {
+				PROFILE_STOP(IDLE);
+				goto RT_force_future_channel_return;
+			}
+		}
+
+		} // PROFILE
+		loot = task->batch;
+#ifdef STEAL_LASTVICTIM
+		last_victim = task->victim;
+		assert(last_victim != ID);
+#endif
+		if (loot > 1) {
+			PROFILE(ENQ_DEQ_TASK) task = deque_list_tl_pop(deque_list_tl_prepend(deque, task, loot));
+			REQ_OPEN();
+		}
+#ifdef VICTIM_CHECK
+		if (loot == 1 && SPLITTABLE(task)) {
+			REQ_OPEN();
+		}
+#endif
+		requested = false;
+		//TODO Figure out at which points updates are reasonable
+		//UPDATE();
+#ifdef STEAL_ADAPTIVE
+		num_steals_exec_recently++;
+#endif
+		PROFILE(RUN_TASK) run_task(task);
+		PROFILE(ENQ_DEQ_TASK) deque_list_tl_task_cache(deque, task);
+	}
+
+RT_force_future_channel_return:
+	return;
+}
+
 // Return when *num_children == 0
 void RT_taskwait(atomic_t *num_children)
 {
