@@ -63,6 +63,28 @@ void bpc_consume(int usec)
 	//printf("Elapsed: %.2lfus\n", elapsed);
 }
 
+void bpc_consume_nopoll(int usec)
+{
+	double start, end, elapsed;
+	start = Wtime_usec();
+	end = usec;
+
+	for (;;) {
+		elapsed = Wtime_usec() - start;
+		if (elapsed >= end)
+			break;
+		// Do some dummy computation
+		// Calculate fib(30) iteratively
+		int fib = 0, f2 = 0, f1 = 1, i;
+		for (i = 2; i <= 30; i++) {
+			fib = f1 + f2;
+			f2 = f1;
+			f1 = fib;
+		}
+	}
+	//printf("Elapsed: %.2lfus\n", elapsed);
+}
+
 void bpc_produce(int, int);
 ASYNC_DECL(bpc_produce, int n; int d, n, d);
 
@@ -122,7 +144,7 @@ void bpc_produce_seq(int n, int d)
 		return;
 
 	for (i = 0; i < n; i++) {
-		bpc_consume(TASK_GRANULARITY);
+		bpc_consume_nopoll(TASK_GRANULARITY);
 	}
 }
 
