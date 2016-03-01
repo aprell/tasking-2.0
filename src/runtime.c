@@ -384,12 +384,18 @@ Task *task_alloc(void)
 
 #endif
 
+// Number of steal attempts before a steal request is sent back to the thief
+// Default value is the number of workers minus one
+#ifndef MAX_STEAL_ATTEMPTS
+#define MAX_STEAL_ATTEMPTS (my_partition->num_workers_rt-1)
+#endif
+
 #ifdef STEAL_RANDOM
 static inline int next_victim(struct steal_request *req)
 {
 	int victim, i;
 
-	for (i = req->try; i < my_partition->num_workers_rt-1; i++) {
+	for (i = req->try; i < MAX_STEAL_ATTEMPTS; i++) {
 		victim = victims[req->ID][i];
 		if (LIKELY_HAS_TASKS(victim)) {
 			//assert(is_in_my_partition(victim));
@@ -400,12 +406,9 @@ static inline int next_victim(struct steal_request *req)
 	}
 
 	assert(i == req->try);
-	assert(req->try == my_partition->num_workers_rt-1);
+	assert(req->try == MAX_STEAL_ATTEMPTS);
 
-	victim = victims[req->ID][i];
-	assert(victim == req->ID);
-
-	return victim;
+	return req->ID;
 }
 #endif // STEAL_RANDOM
 
@@ -468,7 +471,7 @@ static inline int lastvictim(struct steal_request *req)
 {
 	int victim;
 
-	if (req->try < my_partition->num_workers_rt-1) {
+	if (req->try < MAX_STEAL_ATTEMPTS) {
 		if (last_victim != -1 && last_victim != req->ID && LIKELY_HAS_TASKS(last_victim)) {
 			victim = last_victim;
 			return victim;
@@ -477,10 +480,7 @@ static inline int lastvictim(struct steal_request *req)
 		return next_victim(req);
 	}
 
-	victim = victims[req->ID][my_partition->num_workers_rt-1];
-	assert(victim == req->ID);
-
-	return victim;
+	return req->ID;
 }
 #endif // STEAL_LASTVICTIM
 
@@ -771,7 +771,7 @@ static inline void resend_steal_request(void)
 static inline void decline_steal_request(struct steal_request *req)
 {
 	MANAGER {
-		if (req->try == my_partition->num_workers_rt) {
+		if (req->try == MAX_STEAL_ATTEMPTS+1) {
 			req->try = 0;
 		}
 	}
@@ -781,9 +781,9 @@ static inline void decline_steal_request(struct steal_request *req)
 	requests_declined++;
 	req->try++;
 
-	assert(req->try <= my_partition->num_workers_rt);
+	assert(req->try <= MAX_STEAL_ATTEMPTS+1);
 
-	if (req->try < my_partition->num_workers_rt) {
+	if (req->try < MAX_STEAL_ATTEMPTS+1) {
 		//if (my_partition->num_workers_rt > 2) {
 		//	if (ID == req->ID) print_steal_req(req);
 		//	assert(ID != req->ID);
@@ -1032,7 +1032,7 @@ static void run_dummy(UNUSED(void *args))
 #else
 	steal_req.idle = true;
 #endif
-	steal_req.try = my_partition->num_workers_rt-1;
+	steal_req.try = MAX_STEAL_ATTEMPTS;
 #ifdef STEAL_ADAPTIVE
 	steal_req.stealhalf = stealhalf;
 #endif
