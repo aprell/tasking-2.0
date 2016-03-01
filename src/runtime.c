@@ -575,7 +575,7 @@ do { \
 	(req)->is_update = true; \
 	MANAGER { \
 		/* Elide message */ \
-		assert(unregister_idle(req)); \
+		unregister_idle(req); \
 	} else { \
 		PROFILE(SEND_RECV_REQ) SEND_REQ_MANAGER(req); \
 	} \
