@@ -128,7 +128,7 @@ typedef chan future;
 
 #ifdef CACHE_FUTURES
 #ifndef FUTURE_FREELIST_SIZE
-#define FUTURE_FREELIST_SIZE 100
+#define FUTURE_FREELIST_SIZE 4000
 #endif
 #define FUTURE_DECL_FREELIST(type) \
 static PRIVATE unsigned int __future_##type##_freelist_items = 0; \
