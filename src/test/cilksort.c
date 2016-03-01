@@ -699,9 +699,9 @@ int main(int argc, char **argv)
      array = (ELM *) malloc(size * sizeof(ELM));
      tmp = (ELM *) malloc(size * sizeof(ELM));
 
-	 TASKING_INIT(&argc, &argv);
-
      fill_array(array, size);
+
+	 TASKING_INIT(&argc, &argv);
 
      /* Timing. "Start" timers */
 	 start = Wtime_msec();
