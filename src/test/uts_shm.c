@@ -104,6 +104,33 @@ void showStats(double elapsed)
 	uts_showStats(GET_NUM_THREADS, chunkSize, elapsed, tnodes, tleaves, mheight);
 }
 
+// Sequential search of UTS trees
+// Note: tree size is measured by the number of push operations
+void seqTreeSearch(Node parent)
+{
+	Node child;
+	int numChildren;
+	int i, j;
+
+	numChildren = uts_numChildren(&parent);
+
+	// Create numChildren tasks
+	for (i = 0; i < numChildren; i++) {
+		initNode(&child);
+		child.type = uts_childType(&parent);
+		child.height = parent.height + 1;
+
+		// The following line is the work (one or more SHA-1 ops)
+		for (j = 0; j < computeGranularity; j++) {
+			rng_spawn(parent.state.state, child.state.state, i);
+		}
+
+		seqTreeSearch(child);
+	}
+
+	numNodes[GET_THREAD_NUM].n += numChildren;
+}
+
 void parTreeSearch(Node);
 
 ASYNC_DECL(parTreeSearch, Node parent, parent);
