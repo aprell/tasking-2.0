@@ -278,7 +278,8 @@ void mm_seq(void)
 // Block multiplication
 //=============================================================================
 
-void __block_matmul(double C[BSIZE][BSIZE], double A[BSIZE][BSIZE], double B[BSIZE][BSIZE])
+static inline void __block_matmul(double C[BSIZE][BSIZE], double A[BSIZE][BSIZE],
+		                          double B[BSIZE][BSIZE])
 {
 	int i, j, k;
 
