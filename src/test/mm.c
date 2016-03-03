@@ -1,5 +1,7 @@
 //#define VERIFY
 //#define LOOPTASKS
+#define FUTURE_AWAIT
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -300,7 +302,8 @@ void block_matmul(int i, int j, int k)
 	__block_matmul((void *)BC(i,j), (void *)BA(i,k), (void *)BB(k,j));
 }
 
-#ifdef LOOPTASKS
+#if defined LOOPTASKS
+
 void block_matmul_loop(int i, int k)
 {
 	long j;
@@ -326,7 +329,57 @@ void block_mm(void)
 	}
 }
 
-#else
+#elif defined FUTURE_AWAIT
+
+#define AWAIT_ALL \
+do { \
+	while (--t >= 0) { \
+		__AWAIT_VOID(tasks[t]); \
+	} \
+	t = 0; \
+} while (0)
+
+FUTURE_DECL_FREELIST(void);
+VOID_FUTURE_DECL(block_matmul, int i; int j; int k, i, j, k);
+
+void block_mm(void)
+{
+	future tasks[NBD * NBD];
+	int i, j, k;
+	int t = 0;
+
+	for (k = 0; k < NBD; k++) {
+		for (i = 0; i < NBD; i++) {
+			for (j = 0; j < NBD; j++) {
+				// Create a task for each block (i,j)
+				tasks[t++] = __ASYNC(block_matmul, i, j, k);
+			}
+		}
+		AWAIT_ALL;
+	}
+}
+
+#elif defined SPAWN_SYNC
+
+VOID_TASK_DECL(block_matmul, int i; int j; int k, i, j, k);
+
+void block_mm(void)
+{
+	atomic_t num_children = 0;
+	int i, j, k;
+
+	for (k = 0; k < NBD; k++) {
+		for (i = 0; i < NBD; i++) {
+			for (j = 0; j < NBD; j++) {
+				// Create a task for each block (i,j)
+				SPAWN(block_matmul, i, j, k);
+			}
+		}
+		SYNC;
+	}
+}
+
+#else // Regular tasks + barriers
 
 ASYNC_DECL(block_matmul, int i; int j; int k, i, j, k);
 
@@ -344,7 +397,8 @@ void block_mm(void)
 		TASKING_BARRIER();
 	}
 }
-#endif
+
+#endif // block_mm
 
 void block_mm_seq(void)
 {
@@ -427,7 +481,7 @@ int main(int argc, char *argv[])
 	//mm();
 	//block_mm_seq();
 	block_mm();
-	TASKING_BARRIER();
+	//TASKING_BARRIER();
 	end = Wtime_msec();
 
 	printf("Elapsed wall time: %.2lf ms\n", end - start);
