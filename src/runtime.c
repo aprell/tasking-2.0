@@ -1125,6 +1125,8 @@ int RT_schedule(void)
 {
 	schedule(NULL);
 
+	MANAGER LOG("Manager %d received %d notifications\n", ID, notes);
+
 	return 0;
 }
 
