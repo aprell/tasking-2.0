@@ -553,6 +553,7 @@ static inline bool RECV_REQ(struct steal_request *req)
 
 	PROFILE(SEND_RECV_REQ) {
 		ret = channel_receive(chan_requests[ID], req, sizeof(*(req)));
+#ifndef DISABLE_MANAGER
 		MANAGER {
 			// Handle update messages
 			while (ret && unregister_idle(req)) {
@@ -562,6 +563,7 @@ static inline bool RECV_REQ(struct steal_request *req)
 			ret && register_idle(req) && detect_termination();
 			assert(ret && !req->is_update || !ret);
 		}
+#endif
 	} // PROFILE
 
 	return ret;
@@ -580,6 +582,23 @@ static inline bool RECV_TASK(Task **task)
 
 // Termination detection
 
+#ifdef DISABLE_MANAGER
+
+#define NOTIFY_MANAGER(req) \
+do { \
+	assert((req)->idle); \
+	atomic_dec(td_count); \
+} while (0)
+
+#define CHECK_NOTIFY_MANAGER(req) \
+do { \
+	if ((req)->idle) { \
+		NOTIFY_MANAGER(req); \
+	} \
+} while (0)
+
+#else
+
 #define NOTIFY_MANAGER(req) \
 do { \
 	assert((req)->quiescent && (req)->idle); \
@@ -593,12 +612,19 @@ do { \
 	} \
 } while (0)
 
-#define FORGET_REQ(req) \
+#define CHECK_NOTIFY_MANAGER(req) \
 do { \
-	assert((req)->ID == ID); \
 	if ((req)->quiescent) { \
 		NOTIFY_MANAGER(req); \
 	} \
+} while (0)
+
+#endif // DISABLE_MANAGER
+
+#define FORGET_REQ(req) \
+do { \
+	assert((req)->ID == ID); \
+	CHECK_NOTIFY_MANAGER(req); \
 	assert(requested); \
 	requested = false; \
 } while (0)
@@ -750,7 +776,9 @@ static inline void resend_steal_request(void)
 	assert(requested);
 	assert(steal_backoff_waiting);
 	assert(last_steal_req.idle);
+#ifndef DISABLE_MANAGER
 	assert(last_steal_req.quiescent);
+#endif
 	last_steal_req.try = 0;
 	last_steal_req.rounds = 0;
 #ifdef STEAL_RANDOM
@@ -777,6 +805,59 @@ static inline void resend_steal_request(void)
 	} // PROFILE
 }
 #endif // STEAL_BACKOFF
+
+#ifdef DISABLE_MANAGER
+
+static inline void decline_steal_request(struct steal_request *req)
+{
+	PROFILE(SEND_RECV_REQ) {
+
+	requests_declined++;
+	req->try++;
+
+	assert(req->try <= MAX_STEAL_ATTEMPTS+1);
+
+	if (req->try < MAX_STEAL_ATTEMPTS+1) {
+		//if (my_partition->num_workers_rt > 2) {
+		//	if (ID == req->ID) print_steal_req(req);
+		//	assert(ID != req->ID);
+		//}
+		SEND_REQ_WORKER(next_victim(req), req);
+	} else {
+#ifdef STEAL_BACKOFF
+		if (req->idle && ++req->rounds == STEAL_BACKOFF_ROUNDS) {
+			last_steal_req = *req;
+#ifdef STEAL_ADAPTIVE
+			stealhalf = false;
+			last_steal_req.stealhalf = false;
+			num_steals_exec_recently = 0;
+			num_tasks_exec_recently = 0;
+#endif
+			steal_backoff_intvl_start = Wtime_usec();
+			steal_backoff_waiting = true;
+			steal_backoffs++;
+		} else {
+			req->try = 0;
+#ifdef STEAL_RANDOM
+			SEND_REQ_WORKER(next_victim(req), req);
+#else // STEAL_RANDOM_RR
+			SEND_REQ_WORKER(random_victim(req), req);
+#endif
+		}
+#else
+		req->try = 0;
+#ifdef STEAL_RANDOM
+		SEND_REQ_WORKER(next_victim(req), req);
+#else // STEAL_RANDOM_RR
+		SEND_REQ_WORKER(random_victim(req), req);
+#endif
+#endif
+	}
+
+	} // PROFILE
+}
+
+#else
 
 // Got a steal request that can't be served?
 // Pass it on to a different victim or send it back to manager
@@ -833,6 +914,8 @@ static inline void decline_steal_request(struct steal_request *req)
 	} // PROFILE
 }
 
+#endif // DISABLE_MANAGER
+
 static inline void decline_all_steal_requests(void)
 {
 	struct steal_request req;
@@ -842,6 +925,9 @@ static inline void decline_all_steal_requests(void)
 	if (RECV_REQ(&req)) {
 		if (req.ID == ID && !req.idle) {
 			req.idle = true;
+#ifdef DISABLE_MANAGER
+			atomic_inc(td_count);
+#endif
 		}
 		decline_steal_request(&req);
 	}
@@ -862,9 +948,7 @@ static void handle_steal_request(struct steal_request *req)
 		if (deque_list_tl_num_tasks(deque) > REQ_THRESHOLD ||
 			tasks_left > REQ_THRESHOLD) {
 #ifdef OPTIMIZE_BARRIER
-			if (req->quiescent) {
-				NOTIFY_MANAGER(req);
-			}
+			CHECK_NOTIFY_MANAGER(req);
 #else
 			assert(!req->quiescent);
 #endif
@@ -902,9 +986,7 @@ static void handle_steal_request(struct steal_request *req)
 	} // PROFILE
 
 	if (task) {
-		if (req->quiescent) {
-			NOTIFY_MANAGER(req);
-		}
+		CHECK_NOTIFY_MANAGER(req);
 		PROFILE(SEND_RECV_TASK) {
 
 		task->batch = loot;
@@ -1077,7 +1159,9 @@ int RT_barrier(void)
 
 	Task *task;
 	int loot;
+#ifndef DISABLE_MANAGER
 	bool quiescent;
+#endif
 
 empty_local_queue:
 	while ((task = pop()) != NULL) {
@@ -1099,11 +1183,17 @@ empty_local_queue:
 		assert(deque_list_tl_empty(deque));
 		assert(requested);
 		decline_all_steal_requests();
+#ifndef DISABLE_MANAGER
 		if (channel_receive(chan_barrier, &quiescent, sizeof(quiescent))) {
 			assert(quiescent);
 			PROFILE_STOP(IDLE);
 			goto RT_barrier_exit;
 		}
+#else
+		if (tasking_all_idle()) {
+			goto RT_barrier_exit;
+		}
+#endif
 	}
 
 	} // PROFILE
@@ -1133,6 +1223,7 @@ empty_local_queue:
 
 RT_barrier_exit:
 	assert(!channel_peek(chan_tasks[ID]));
+#ifndef DISABLE_MANAGER
 #ifdef OPTIMIZE_BARRIER
 	struct steal_request req;
 	while (!RECV_REQ(&req)) ;
@@ -1169,6 +1260,7 @@ RT_barrier_exit:
 		}
 	}
 #endif // OPTIMIZE_BARRIER
+#endif // DISABLE_MANAGER
 
 	return 0;
 }
@@ -1589,9 +1681,7 @@ static void split_loop(Task *task, struct steal_request *req)
 
 	//LOG("Worker %2d: Sending [%ld, %ld) to worker %d\n", ID, dup->start, dup->end, req->ID);
 
-	if (req->quiescent) {
-		NOTIFY_MANAGER(req);
-	}
+	CHECK_NOTIFY_MANAGER(req);
 
 	PROFILE(SEND_RECV_TASK) {
 

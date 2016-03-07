@@ -2,6 +2,9 @@
 #define TASKING_INTERNAL_H
 
 #include <stdbool.h>
+#ifdef DISABLE_MANAGER
+#include <assert.h>
+#endif
 #include "platform.h"
 #include "atomic.h"
 #include "task.h"
@@ -13,13 +16,17 @@
 // Shared state
 extern atomic_t *tasking_finished;
 extern atomic_t *num_tasks_exec;
+#ifdef DISABLE_MANAGER
+extern atomic_t *td_count;
+#endif
+
 extern int num_workers;
 
 // Private state
 extern PRIVATE int ID;
 extern PRIVATE int num_tasks_exec_worker;
 extern PRIVATE int num_tasks_exec_recently;
-extern PRIVATE int worker_state; // currently unused
+extern PRIVATE int worker_state; // unused unless manager is disabled
 
 // Pointer to the task that is currently running
 extern PRIVATE Task *current_task;
@@ -50,10 +57,33 @@ static inline int get_worker_state(void)
 	return worker_state;
 }
 
+#ifdef DISABLE_MANAGER
+
+static inline void set_worker_state(int state)
+{
+	assert(worker_state != state);
+
+	switch (worker_state = state) {
+	case WORKING:
+		atomic_dec(td_count);
+		break;
+	case IDLE:
+		atomic_inc(td_count);
+		break;
+	default:
+		assert(false && "Invalid worker state");
+		break;
+	}
+}
+
+#else
+
 static inline void set_worker_state(int state)
 {
 	worker_state = state;
 }
+
+#endif
 
 #define is_idle() 		(get_worker_state() == IDLE ? 1 : 0)
 #define is_working()	(get_worker_state() == WORKING ? 1 : 0)
@@ -93,6 +123,9 @@ int tasking_internal_exit(void);
 int tasking_internal_barrier(void);
 int tasking_internal_statistics(void);
 int tasking_tasks_exec(void);
+#ifdef DISABLE_MANAGER
+bool tasking_all_idle(void);
+#endif
 bool tasking_done(void);
 
 #endif // TASKING_INTERNAL_H

@@ -13,6 +13,9 @@
 // Shared state
 atomic_t *tasking_finished;
 atomic_t *num_tasks_exec;
+#ifdef DISABLE_MANAGER
+atomic_t *td_count;
+#endif
 int num_workers;
 
 // Private state
@@ -65,9 +68,15 @@ int tasking_internal_init(int *argc UNUSED, char ***argv UNUSED)
 
 	tasking_finished = (atomic_t *)malloc(64 * sizeof(atomic_t));
 	num_tasks_exec   = (atomic_t *)malloc(64 * sizeof(atomic_t));
+#ifdef DISABLE_MANAGER
+	td_count         = (atomic_t *)malloc(64 * sizeof(atomic_t));
+#endif
 
 	atomic_set(tasking_finished, 0);
 	atomic_set(num_tasks_exec, 0);
+#ifdef DISABLE_MANAGER
+	atomic_set(td_count, 0);
+#endif
 
 	IDs = (int *)malloc(num_workers * sizeof(int));
 	worker_threads = (pthread_t *)malloc(num_workers * sizeof(pthread_t));
@@ -184,6 +193,9 @@ int tasking_internal_exit(void)
 	free(IDs);
 	free(tasking_finished);
 	free(num_tasks_exec);
+#ifdef DISABLE_MANAGER
+	free(td_count);
+#endif
 
 	// Deallocate root task
 	assert(is_root_task(current_task));
@@ -201,6 +213,13 @@ int tasking_tasks_exec(void)
 {
 	return atomic_read(num_tasks_exec);
 }
+
+#ifdef DISABLE_MANAGER
+bool tasking_all_idle(void)
+{
+	return atomic_read(td_count) == num_workers;
+}
+#endif
 
 bool tasking_done(void)
 {
