@@ -39,6 +39,27 @@ static Channel *chan_tasks[MAXNP];
 // Manager -> master: notify about global quiescence
 static Channel *chan_barrier;
 
+#ifdef VICTIM_CHECK
+
+struct task_indicator {
+	atomic_t tasks;
+	char __[64 - sizeof(atomic_t)];
+};
+
+static struct task_indicator task_indicators[MAXNP];
+
+#define LIKELY_HAS_TASKS(ID)    (atomic_read(&task_indicators[ID].tasks) > 0)
+#define HAVE_TASKS()             atomic_set(&task_indicators[ID].tasks, 1)
+#define HAVE_NO_TASKS()          atomic_set(&task_indicators[ID].tasks, 0)
+
+#else
+
+#define LIKELY_HAS_TASKS(ID)     true      // Assume yes, victim has tasks
+#define HAVE_TASKS()             ((void)0) // NOOP
+#define HAVE_NO_TASKS()          ((void)0) // NOOP
+
+#endif // VICTIM_CHECK
+
 // One possible extension would be to be able to request more than one task
 // at a time. No need to change the work-stealing algorithm.
 // Another idea would be to be able to request a task from a specific worker,
@@ -326,6 +347,11 @@ int RT_init(void)
 
 	requested = false;
 
+#ifdef VICTIM_CHECK
+	assert(sizeof(struct task_indicator) == 64);
+	atomic_set(&task_indicators[ID].tasks, 0);
+#endif
+
 	PROFILE_INIT(RUN_TASK);
 	PROFILE_INIT(ENQ_DEQ_TASK);
 	PROFILE_INIT(SEND_RECV_TASK);
@@ -370,20 +396,6 @@ Task *task_alloc(void)
 	return deque_list_tl_task_new(deque);
 }
 
-#ifdef VICTIM_CHECK
-
-#define LIKELY_HAS_TASKS(ID) (!channel_closed(chan_requests[ID]))
-#define REQ_CLOSE()            channel_close(chan_requests[ID])
-#define REQ_OPEN()             channel_open(chan_requests[ID])
-
-#else
-
-#define LIKELY_HAS_TASKS(ID)   true      // Assume yes, victim has tasks
-#define REQ_CLOSE()            ((void)0) // NOOP
-#define REQ_OPEN()             ((void)0) // NOOP
-
-#endif
-
 // Number of steal attempts before a steal request is sent back to the thief
 // Default value is the number of workers minus one
 #ifndef MAX_STEAL_ATTEMPTS
@@ -399,7 +411,7 @@ static inline int next_victim(struct steal_request *req)
 		victim = victims[req->ID][i];
 		if (LIKELY_HAS_TASKS(victim)) {
 			//assert(is_in_my_partition(victim));
-			//LOG("Worker %d: Found victim after %i tries\n", ID, i);
+			//LOG("Worker %d: Choosing victim %d after %i tries (requester %d)\n", ID, victim, i, req->ID);
 			return victim;
 		}
 		req->try++;
@@ -860,7 +872,14 @@ static void handle_steal_request(struct steal_request *req)
 			requested = false;
 			return;
 		} else {
+#ifdef VICTIM_CHECK
+			// Avoid sending the steal request back to ourselves
+			assert(!req->quiescent);
+			assert(requested);
+			requested = false;
+#else
 			decline_steal_request(req); // => send to manager
+#endif
 			return;
 		}
 	}
@@ -906,7 +925,7 @@ static void handle_steal_request(struct steal_request *req)
 		// Pass it on to someone else
 		assert(deque_list_tl_empty(deque));
 		decline_steal_request(req);
-		REQ_CLOSE();
+		HAVE_NO_TASKS();
 	}
 }
 
@@ -938,6 +957,7 @@ int RT_check_for_steal_requests(void)
 				FORGET_REQ(&req);
 			}
 		} else {
+			HAVE_NO_TASKS();
 			decline_steal_request(&req);
 		}
 		n++;
@@ -961,6 +981,9 @@ void *schedule(UNUSED(void *args))
 		}
 
 		// (2) Work-stealing request
+		if (!requested) {
+			send_steal_request(true);
+		}
 		assert(requested);
 
 		PROFILE(IDLE) {
@@ -991,11 +1014,11 @@ void *schedule(UNUSED(void *args))
 #endif
 		if (loot > 1) {
 			PROFILE(ENQ_DEQ_TASK) task = deque_list_tl_pop(deque_list_tl_prepend(deque, task, loot));
-			REQ_OPEN();
+			HAVE_TASKS();
 		}
 #ifdef VICTIM_CHECK
 		if (loot == 1 && SPLITTABLE(task)) {
-			REQ_OPEN();
+			HAVE_TASKS();
 		}
 #endif
 		requested = false;
@@ -1065,6 +1088,9 @@ empty_local_queue:
 	if (num_workers == 1)
 		return 0;
 
+	if (!requested) {
+		send_steal_request(true);
+	}
 	assert(requested);
 
 	PROFILE(IDLE) {
@@ -1088,11 +1114,11 @@ empty_local_queue:
 #endif
 	if (loot > 1) {
 		PROFILE(ENQ_DEQ_TASK) task = deque_list_tl_pop(deque_list_tl_prepend(deque, task, loot));
-		REQ_OPEN();
+		HAVE_TASKS();
 	}
 #ifdef VICTIM_CHECK
 	if (loot == 1 && SPLITTABLE(task)) {
-		REQ_OPEN();
+		HAVE_TASKS();
 	}
 #endif
 	requested = false;
@@ -1197,11 +1223,11 @@ void RT_force_future_channel(Channel *chan, void *data, unsigned int size)
 #endif
 		if (loot > 1) {
 			PROFILE(ENQ_DEQ_TASK) task = deque_list_tl_pop(deque_list_tl_prepend(deque, task, loot));
-			REQ_OPEN();
+			HAVE_TASKS();
 		}
 #ifdef VICTIM_CHECK
 		if (loot == 1 && SPLITTABLE(task)) {
-			REQ_OPEN();
+			HAVE_TASKS();
 		}
 #endif
 		requested = false;
@@ -1268,11 +1294,11 @@ void RT_force_future_channel(Channel *chan)
 #endif
 		if (loot > 1) {
 			PROFILE(ENQ_DEQ_TASK) task = deque_list_tl_pop(deque_list_tl_prepend(deque, task, loot));
-			REQ_OPEN();
+			HAVE_TASKS();
 		}
 #ifdef VICTIM_CHECK
 		if (loot == 1 && SPLITTABLE(task)) {
-			REQ_OPEN();
+			HAVE_TASKS();
 		}
 #endif
 		requested = false;
@@ -1338,11 +1364,11 @@ void RT_taskwait(atomic_t *num_children)
 #endif
 		if (loot > 1) {
 			PROFILE(ENQ_DEQ_TASK) task = deque_list_tl_pop(deque_list_tl_prepend(deque, task, loot));
-			REQ_OPEN();
+			HAVE_TASKS();
 		}
 #ifdef VICTIM_CHECK
 		if (loot == 1 && SPLITTABLE(task)) {
-			REQ_OPEN();
+			HAVE_TASKS();
 		}
 #endif
 		requested = false;
@@ -1365,7 +1391,7 @@ void push(Task *task)
 
 	deque_list_tl_push(deque, task);
 
-	REQ_OPEN();
+	HAVE_TASKS();
 
 	PROFILE_STOP(ENQ_DEQ_TASK);
 
@@ -1387,7 +1413,7 @@ Task *pop(void)
 	}
 
 #ifdef VICTIM_CHECK
-	if (!task) REQ_CLOSE();
+	if (!task) HAVE_NO_TASKS();
 #endif
 
 	if (task && !task->is_loop || !task) {
@@ -1466,6 +1492,7 @@ bool RT_loop_split(void)
 			split_loop(this, &req);
 			return true;
 		} else {
+			HAVE_NO_TASKS();
 			FORGET_REQ(&req);
 			return false;
 		}
