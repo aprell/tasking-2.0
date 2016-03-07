@@ -1,6 +1,6 @@
 //#define VERIFY
-//#define LOOPTASKS
-#define FUTURE_AWAIT
+#define LOOPTASKS
+//#define FUTURE_AWAIT
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -309,7 +309,11 @@ void block_matmul_loop(int i, int k)
 	long j;
 
 	for_each_task (j) {
+#if 0
 		block_matmul(i, j, k);
+#else
+		block_matmul(j/i, j%i, k);
+#endif
 		RT_loop_split();
 	}
 }
@@ -321,10 +325,14 @@ void block_mm(void)
 	int i, k;
 
 	for (k = 0; k < NBD; k++) {
+#if 0
 		for (i = 0; i < NBD; i++) {
 			// Create a loop task for all blocks in a row
 			ASYNC_FOR(block_matmul_loop, 0, NBD, i, k);
 		}
+#else
+		ASYNC_FOR(block_matmul_loop, 0, NBD * NBD, NBD, k);
+#endif
 		TASKING_BARRIER();
 	}
 }
