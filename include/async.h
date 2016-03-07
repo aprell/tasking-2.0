@@ -132,7 +132,17 @@ typedef chan future;
 #endif
 #define FUTURE_DECL_FREELIST(type) \
 static PRIVATE unsigned int __future_##type##_freelist_items = 0; \
-static PRIVATE future __future_##type##_freelist[FUTURE_FREELIST_SIZE]
+static PRIVATE future __future_##type##_freelist[FUTURE_FREELIST_SIZE]; \
+static void __future_##type##_freelist_prealloc(void) \
+{ \
+	unsigned int i; \
+	for (i = __future_##type##_freelist_items; i < FUTURE_FREELIST_SIZE; i++) { \
+		future f; \
+		chanref_set(&f, channel_alloc(SPSC)); \
+		__future_##type##_freelist[i] = f; \
+	} \
+	__future_##type##_freelist_items = i; \
+}
 #else
 #define FUTURE_DECL_FREELIST(type) // empty
 #endif // CACHE_FUTURES
@@ -174,7 +184,6 @@ static inline future new_##fname##_future(void) \
 	future f; \
 	if (__future_void_freelist_items > 0) { \
 		f = __future_void_freelist[--__future_void_freelist_items]; \
-		assert(channel_closed(chanref_get(f))); \
 		channel_open(chanref_get(f)); \
 		return f; \
 	} \
