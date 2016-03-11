@@ -1,5 +1,5 @@
-#ifndef OVERLOAD_deque_list_tl_prepend_H
-#define OVERLOAD_deque_list_tl_prepend_H
+#ifndef OVERLOAD_deque_list_tl_steal_half_H
+#define OVERLOAD_deque_list_tl_steal_half_H
 
 #ifndef VA_NARGS
 /* Count variadic macro arguments (1-10 arguments, extend as needed)
@@ -8,10 +8,10 @@
 #define VA_NARGS(...) VA_NARGS_IMPL(__VA_ARGS__, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1)
 #endif
 
-/* Simple name mangling of function deque_list_tl_prepend based on arity
+/* Simple name mangling of function deque_list_tl_steal_half based on arity
  */
-#define __deque_list_tl_prepend_impl2(n, ...) __deque_list_tl_prepend_impl__ ## n(__VA_ARGS__)
-#define __deque_list_tl_prepend_impl(n, ...) __deque_list_tl_prepend_impl2(n, __VA_ARGS__)
-#define deque_list_tl_prepend(...) __deque_list_tl_prepend_impl(VA_NARGS(__VA_ARGS__), __VA_ARGS__)
+#define __deque_list_tl_steal_half_impl2(n, ...) __deque_list_tl_steal_half_impl__ ## n(__VA_ARGS__)
+#define __deque_list_tl_steal_half_impl(n, ...) __deque_list_tl_steal_half_impl2(n, __VA_ARGS__)
+#define deque_list_tl_steal_half(...) __deque_list_tl_steal_half_impl(VA_NARGS(__VA_ARGS__), __VA_ARGS__)
 
-#endif // OVERLOAD_deque_list_tl_prepend_H
+#endif // OVERLOAD_deque_list_tl_steal_half_H
