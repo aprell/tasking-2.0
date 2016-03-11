@@ -251,6 +251,50 @@ Task *deque_list_tl_steal_many(DequeListTL *dq, Task **tail, int max, int *stole
 	return task;
 }
 
+// Steal up to half of the deque's tasks, but at most max tasks
+// stolen will contain the number of transferred tasks
+Task *deque_list_tl_steal_many(DequeListTL *dq, int max, int *stolen)
+{
+	assert(dq != NULL);
+	assert(stolen != NULL);
+
+	Task *task;
+	int n, i;
+
+	if (deque_list_tl_empty(dq))
+		return NULL;
+
+	// Make sure to steal at least one task
+	n = dq->num_tasks / 2;
+	if (n == 0) n = 1;
+	if (n > max) n = max;
+
+	task = dq->tail;
+	assert(task->fn == (void *)0xCAFE);
+
+	// Walk backwards
+	for (i = 0; i < n; i++) {
+		task = task->prev;
+	}
+
+	dq->tail->prev->next = NULL;
+	dq->tail->prev = task->prev;
+	task->prev = NULL;
+	if (dq->tail->prev == NULL) {
+		// Stealing the last task in the deque
+		assert(dq->head == task);
+		dq->head = dq->tail;
+	} else {
+		dq->tail->prev->next = dq->tail;
+	}
+
+	dq->num_tasks -= n;
+	dq->num_steals++;
+	*stolen = n;
+
+	return task;
+}
+
 // Steal half of the deque's tasks
 // tail will point to the last task in the returned list (head is returned)
 // stolen will contain the number of transferred tasks
