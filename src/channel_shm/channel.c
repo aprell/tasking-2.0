@@ -8,6 +8,15 @@
 #include "atomic.h"
 #include "utest.h"
 
+#if 0
+#include <ck_spinlock.h>
+#define pthread_mutex_t          ck_spinlock_t
+#define pthread_mutex_init(x, _) ck_spinlock_init(x)
+#define pthread_mutex_destroy(_) ((void)0)
+#define pthread_mutex_lock(x)    ck_spinlock_lock(x)
+#define pthread_mutex_unlock(x)  ck_spinlock_unlock(x)
+#endif
+
 struct SHM_channel {
 	pthread_mutex_t head_lock, tail_lock;
 	// The owner that has allocated the channel
