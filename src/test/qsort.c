@@ -9,19 +9,21 @@
 #include "chanref.h"
 #include "wtime.h"
 
+typedef long ELM;
+
 #define NUM_ELEMS 100000000
 #define INS_SORT_THRESHOLD 100
 
-static int *A;
-//static int localA[INS_SORT_THRESHOLD];
+static ELM *A;
+//static ELM localA[INS_SORT_THRESHOLD];
 static PRIVATE unsigned int seed = 100;
 
-static void insertionsort(int *A, int length)
+static void insertionsort(ELM *A, int length)
 {
 	int i, j;
 
 	for (i = 0; i < length; i++) {
-		int v = A[i];
+		ELM v = A[i];
 		for (j = i - 1; j >= 0; j--) {
 			if (A[j] <= v)
 				break;
@@ -31,12 +33,25 @@ static void insertionsort(int *A, int length)
 	}
 }
 
-static inline void swap(int *A, int i, int j)
+static inline void swap(ELM *A, int i, int j)
 {
-	int tmp = A[i];
+	ELM tmp = A[i];
 	A[i] = A[j];
 	A[j] = tmp;
 }
+
+static inline int median_of_three(ELM *A, int left, int right)
+{
+	int mid = (right - left) / 2;
+	ELM a = A[left], b = A[left + mid], c = A[right];
+
+	if ((a - b) * (c - a) >= 0) return 0;
+	if ((b - a) * (c - b) >= 0) return mid;
+	return right - left;
+}
+
+//#define PIVOT (rand_r(&seed) % n)
+#define PIVOT (median_of_three(A, left, right-1))
 
 bool quicksort_seq(int left, int right)
 {
@@ -48,15 +63,15 @@ bool quicksort_seq(int left, int right)
 
 	// User-defined cutoff
 	if (n <= INS_SORT_THRESHOLD) {
-		//memcpy(localA, &A[left], n * sizeof(int));
+		//memcpy(localA, &A[left], n * sizeof(ELM));
 		//insertionsort(localA, n);
-		//memcpy(&A[left], localA, n * sizeof(int));
+		//memcpy(&A[left], localA, n * sizeof(ELM));
 		insertionsort(&A[left], n);
 		return true;
 	}
 
 	// Move pivot to A[left]
-	swap(A, left, left + rand_r(&seed) % n);
+	swap(A, left, left + PIVOT);
 	last = left;
 	for (i = left + 1; i <= right; i++)
 		if (A[i] < A[left])
@@ -87,15 +102,15 @@ bool quicksort(int left, int right)
 
 	// User-defined cutoff
 	if (n <= INS_SORT_THRESHOLD) {
-		//memcpy(localA, &A[left], n * sizeof(int));
+		//memcpy(localA, &A[left], n * sizeof(ELM));
 		//insertionsort(localA, n);
-		//memcpy(&A[left], localA, n * sizeof(int));
+		//memcpy(&A[left], localA, n * sizeof(ELM));
 		insertionsort(&A[left], n);
 		return true;
 	}
 
 	// Move pivot to A[left]
-	swap(A, left, left + rand_r(&seed) % n);
+	swap(A, left, left + PIVOT);
 	last = left;
 	for (i = left + 1; i <= right; i++)
 		if (A[i] < A[left])
@@ -116,7 +131,7 @@ static void verify_result(void)
 
 	for (i = 0; i < NUM_ELEMS-1; i++) {
 		if (A[i+1] < A[i]) {
-			printf("Quicksort failed: %d < %d\n", A[i+1], A[i]);
+			printf("Quicksort failed: %ld < %ld\n", (long)A[i+1], (long)A[i]);
 		}
 	}
 }
@@ -126,7 +141,7 @@ int main(int argc, char *argv[])
 	int i;
 	double start, end;
 
-	A = (int *)malloc(NUM_ELEMS * sizeof(int));
+	A = (ELM *)malloc(NUM_ELEMS * sizeof(ELM));
 
 	TASKING_INIT(&argc, &argv);
 
