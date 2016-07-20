@@ -156,6 +156,7 @@ ASYNC_DECL(fwd, int i; int j, i, j);
 static void lu_init(int argc, char *argv[])
 {
 	bool null_entry;
+	int zeros = 0, nonzeros = 0;
 	int init_val, i, j, k;
 
 	if (argc != 3) {
@@ -199,8 +200,19 @@ static void lu_init(int argc, char *argv[])
 			if (null_entry == false)
 				A(i,j) = (double *)malloc(NEB * sizeof(double));
 			else A(i,j) = NULL;
+
+			if (null_entry) {
+				zeros++;
+			} else {
+				nonzeros++;
+			}
 		}
 	}
+
+	assert(zeros + nonzeros == NB);
+
+	printf("Zero blocks: %d (%.0f%%), Nonzero blocks: %d (%.0f%%)\n",
+			zeros, (float)zeros * 100 / NB, nonzeros, (float)nonzeros * 100 / NB);
 
 	/* Initialize matrix */
 	init_val = 1325;
