@@ -1153,6 +1153,8 @@ static void run_dummy(UNUSED(void *args))
 }
 #endif
 
+//double td_start, td_end, td_elapsed;
+
 int RT_barrier(void)
 {
 	WORKER return 0;
@@ -1224,6 +1226,7 @@ empty_local_queue:
 	goto empty_local_queue;
 
 RT_barrier_exit:
+	//td_start = Wtime_usec();
 	assert(!channel_peek(chan_tasks[ID]));
 #ifndef DISABLE_MANAGER
 #ifdef OPTIMIZE_BARRIER
@@ -1263,6 +1266,9 @@ RT_barrier_exit:
 	}
 #endif // OPTIMIZE_BARRIER
 #endif // DISABLE_MANAGER
+
+	//td_end = Wtime_usec();
+	//td_elapsed += td_end - td_start;
 
 	return 0;
 }

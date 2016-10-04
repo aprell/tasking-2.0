@@ -68,9 +68,11 @@ void time_td_delay_max(int argc, char *argv[])
 
 	TASKING_INIT(&argc, &argv);
 
+#if 0
 	if (num_workers > 1) {
 		pthread_barrier_wait(&td_sync);
 	}
+#endif
 
 	start = Wtime_usec();
 
@@ -82,9 +84,11 @@ void time_td_delay_max(int argc, char *argv[])
 
 	TASKING_EXIT();
 
+#if 0
 	if (num_workers > 1) {
 		pthread_barrier_destroy(&td_sync);
 	}
+#endif
 }
 
 #if 0
@@ -118,15 +122,15 @@ void time_barriers(int argc, char *argv[])
 
 	TASKING_BARRIER();
 
-	start = Wtime_msec();
+	start = Wtime_usec();
 
 	for (i = 0; i < N; i++) {
 		TASKING_BARRIER();
 	}
 
-	end = Wtime_msec();
+	end = Wtime_usec();
 
-	printf("Elapsed wall time: %.2lf ms\n", end - start);
+	printf("Elapsed wall time: %.2lf us\n", (end - start)/N);
 
 	TASKING_EXIT();
 }
