@@ -58,6 +58,7 @@ static struct task_indicator task_indicators[MAXNP];
 #endif // VICTIM_CHECK
 
 struct steal_request {
+	Channel *chan;  // channel for sending tasks
 	int ID;			// ID of requesting worker
 	int try;	   	// 0 <= try <= num_workers_rt
 	int partition; 	// partition in which the steal request was initiated
@@ -73,13 +74,13 @@ struct steal_request {
 	bool stealhalf; // true ? attempt steal-half : attempt steal-one
 #endif
 #if defined STEAL_BACKOFF && defined STEAL_ADAPTIVE
-	char __[8];		// pad to cache line
+	char __[0];	    // pad to cache line
 #elif defined STEAL_BACKOFF
-	char __[9];     // pad to cache line
+	char __[1];     // pad to cache line
 #elif defined STEAL_ADAPTIVE
-	char __[12];    // pad to cache line
+	char __[4];     // pad to cache line
 #else
-	char __[13];   	// pad to cache line
+	char __[5];     // pad to cache line
 #endif
 };
 
@@ -316,7 +317,8 @@ int RT_init(void)
 		}
 	}
 
-	steal_req = (struct steal_request){
+	steal_req = (struct steal_request) {
+		.chan = chan_tasks[ID],
 		.ID = ID,
 		.try = 0,
 		.partition = my_partition->number,
@@ -999,7 +1001,7 @@ static void handle_steal_request(struct steal_request *req)
 #ifdef STEAL_LASTVICTIM
 		task->victim = ID;
 #endif
-		channel_send(chan_tasks[req->ID], (void *)&task, sizeof(Task *));
+		channel_send(req->chan, (void *)&task, sizeof(Task *));
 		//LOG("Worker %2d: sending %d tasks to worker %d\n", ID, loot, req->ID);
 		requests_handled++;
 		tasks_sent += loot;
@@ -1251,7 +1253,7 @@ RT_barrier_exit:
 #ifdef STEAL_LASTVICTIM
 		dummy->victim = ID;
 #endif
-		channel_send(chan_tasks[req.ID], (void *)&dummy, sizeof(Task *));
+		channel_send(req.chan, (void *)&dummy, sizeof(Task *));
 
 		} // PROFILE
 	}
@@ -1703,7 +1705,7 @@ static void split_loop(Task *task, struct steal_request *req)
 	dup->victim = ID;
 #endif
 
-	channel_send(chan_tasks[req->ID], (void *)&dup, sizeof(dup));
+	channel_send(req->chan, (void *)&dup, sizeof(dup));
 	requests_handled++;
 	tasks_sent++;
 #ifdef STEAL_LEAPFROG
