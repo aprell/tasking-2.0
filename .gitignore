@@ -40,3 +40,11 @@ src/uts-seq*
 src/uts-par*
 src/lu*
 src/loopsched
+
+include/terra_async.h
+include/terra_tasking_mod
+include/terra_tasking_ext
+src/terra_tasking_mod
+src/terra_tasking_ext
+
+benchmark*
