@@ -36,9 +36,6 @@ static Channel *chan_requests[MAXNP];
 // Worker -> worker: tasks (SPSC)
 static Channel *chan_tasks[MAXNP];
 
-// Manager -> master: notify about global quiescence
-static Channel *chan_barrier;
-
 #ifdef VICTIM_CHECK
 
 struct task_indicator {
@@ -313,10 +310,6 @@ int RT_init(void)
 
 	chan_tasks[ID] = channel_alloc(sizeof(Task *), 1, SPSC);
 
-	MASTER {
-		chan_barrier = channel_alloc(sizeof(bool), 0, SPSC);
-	}
-
 	victims[ID] = (int *)malloc(MAXNP * sizeof(int));
 	my_victims = (int *)malloc(MAXNP * sizeof(int));
 
@@ -370,10 +363,6 @@ int RT_exit(void)
 
 	channel_free(chan_requests[ID]);
 	channel_free(chan_tasks[ID]);
-
-	MASTER {
-		channel_free(chan_barrier);
-	}
 
 	PARTITION_RESET();
 
@@ -635,6 +624,17 @@ static PRIVATE int notes;
 static PRIVATE bool quiescent;
 static PRIVATE bool after_barrier;
 
+#ifdef STEAL_ADAPTIVE
+// Number of steals after which the current strategy is reevaluated
+#ifndef STEAL_ADAPTIVE_INTERVAL
+#define STEAL_ADAPTIVE_INTERVAL 25
+#endif
+PRIVATE int num_tasks_exec_recently;
+static PRIVATE int num_steals_exec_recently;
+static PRIVATE bool stealhalf;
+PRIVATE unsigned int requests_steal_one, requests_steal_half;
+#endif
+
 static inline bool register_idle(struct steal_request *req)
 {
 	if (req->idle && !req->quiescent && !workers_q[req->pID]) {
@@ -665,6 +665,17 @@ static inline bool unregister_idle(struct steal_request *req)
 	return false;
 }
 
+static void confirm_termination(UNUSED(void *args))
+{
+	assert(!requested);
+	requested = true;
+	quiescent = true;
+#ifdef STEAL_ADAPTIVE
+	num_steals_exec_recently--;
+#endif
+	num_tasks_exec_worker--;
+}
+
 static inline bool detect_termination(void)
 {
 	if (num_workers_q == my_partition->num_workers_rt && !quiescent) {
@@ -672,8 +683,21 @@ static inline bool detect_termination(void)
 		quiescent = true;
 	}
 
-	if (!after_barrier && quiescent && !channel_peek(chan_barrier)) {
-		channel_send(chan_barrier, &quiescent, sizeof(quiescent));
+	if (!after_barrier && quiescent && !channel_peek(chan_tasks[MASTER_ID])) {
+#if MANAGER_ID != MASTER_ID
+		// Package up and send a dummy task
+		PROFILE(SEND_RECV_TASK) {
+
+		Task *dummy = task_alloc();
+		dummy->fn = (void (*)(void *))confirm_termination;
+		dummy->batch = 1;
+#ifdef STEAL_LASTVICTIM
+		dummy->victim = ID;
+#endif
+		channel_send(chan_tasks[MASTER_ID], (void *)&dummy, sizeof(Task *));
+
+		} // PROFILE
+#endif
 		//LOG("Termination confirmed\n");
 		after_barrier = true;
 		return true;
@@ -681,17 +705,6 @@ static inline bool detect_termination(void)
 
 	return false;
 }
-
-#ifdef STEAL_ADAPTIVE
-// Number of steals after which the current strategy is reevaluated
-#ifndef STEAL_ADAPTIVE_INTERVAL
-#define STEAL_ADAPTIVE_INTERVAL 25
-#endif
-PRIVATE int num_tasks_exec_recently;
-static PRIVATE int num_steals_exec_recently;
-static PRIVATE bool stealhalf;
-PRIVATE unsigned int requests_steal_one, requests_steal_half;
-#endif
 
 // Send steal request when number of local tasks <= REQ_THRESHOLD
 // Steal requests are always sent before actually running out of tasks.
@@ -1164,7 +1177,7 @@ int RT_barrier(void)
 	Task *task;
 	int loot;
 #ifndef DISABLE_MANAGER
-	bool quiescent;
+	quiescent = false;
 #endif
 
 empty_local_queue:
@@ -1188,8 +1201,7 @@ empty_local_queue:
 		assert(requested);
 		decline_all_steal_requests();
 #ifndef DISABLE_MANAGER
-		if (channel_receive(chan_barrier, &quiescent, sizeof(quiescent))) {
-			assert(quiescent);
+		if (quiescent) {
 			PROFILE_STOP(IDLE);
 			goto RT_barrier_exit;
 		}
