@@ -57,15 +57,9 @@ static struct task_indicator task_indicators[MAXNP];
 
 #endif // VICTIM_CHECK
 
-// One possible extension would be to be able to request more than one task
-// at a time. No need to change the work-stealing algorithm.
-// Another idea would be to be able to request a task from a specific worker,
-// for example, in order to implement leapfrogging. A problem might be that
-// handling such a request could also delay other requests.
 struct steal_request {
 	int ID;			// ID of requesting worker
 	int try;	   	// 0 <= try <= num_workers_rt
-	int pass;	   	// 0 <= pass <= num_partitions
 	int partition; 	// partition in which the steal request was initiated
 	int pID;		// ID of requesting worker within partition
 #ifdef STEAL_BACKOFF
@@ -79,26 +73,26 @@ struct steal_request {
 	bool stealhalf; // true ? attempt steal-half : attempt steal-one
 #endif
 #if defined STEAL_BACKOFF && defined STEAL_ADAPTIVE
-	char __[4];		// pad to cache line
+	char __[8];		// pad to cache line
 #elif defined STEAL_BACKOFF
-	char __[5];     // pad to cache line
+	char __[9];     // pad to cache line
 #elif defined STEAL_ADAPTIVE
-	char __[8];     // pad to cache line
+	char __[12];    // pad to cache line
 #else
-	char __[9];   	// pad to cache line
+	char __[13];   	// pad to cache line
 #endif
 };
 
 static inline void print_steal_req(struct steal_request *req)
 {
-	LOG("{ .ID = %d, .try = %d, .pass = %d, .partition = %d, .pID = %d, "
+	LOG("{ .ID = %d, .try = %d, .partition = %d, .pID = %d, "
 		".idle = %s, .quiescent = %s, .is_update = %s }\n",
-		req->ID, req->try, req->pass, req->partition, req->pID,
+		req->ID, req->try, req->partition, req->pID,
 		req->idle == true ? "Y" : "N", req->quiescent == true ? "Y" : "N",
 		req->is_update == true ? "Y" : "N");
 }
 
-// .try == 0, .pass == 0, .idle == false, .quiescence == false
+// .try == 0, .idle == false, .quiescence == false
 static PRIVATE struct steal_request steal_req;
 
 #ifdef STEAL_BACKOFF
@@ -325,7 +319,6 @@ int RT_init(void)
 	steal_req = (struct steal_request){
 		.ID = ID,
 		.try = 0,
-		.pass = 0,
 		.partition = my_partition->number,
 		.pID = pID,
 #ifdef STEAL_BACKOFF
