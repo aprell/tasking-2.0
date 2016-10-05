@@ -311,7 +311,7 @@ int RT_init(void)
 		chan_requests[ID] = channel_alloc(sizeof(struct steal_request), num_workers, MPSC);
 	}
 
-	chan_tasks[ID] = channel_alloc(sizeof(Task *), 2, SPSC);
+	chan_tasks[ID] = channel_alloc(sizeof(Task *), 1, SPSC);
 
 	MASTER {
 		chan_barrier = channel_alloc(sizeof(bool), 0, SPSC);
