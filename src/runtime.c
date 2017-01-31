@@ -1437,6 +1437,11 @@ RT_force_future_channel_return:
 	return;
 }
 
+// Define RT_force_future as an alias for RT_force_future_channel
+// __RT_force_future_channel_impl__3 is the mangled symbol name
+void __attribute__((alias("__RT_force_future_channel_impl__3")))
+RT_force_future(Channel *chan, void *data, unsigned int size);
+
 // Return when *num_children == 0
 void RT_taskwait(atomic_t *num_children)
 {

@@ -143,6 +143,7 @@ int RT_init();
 int RT_exit(void);
 int RT_schedule(void);
 int RT_barrier(void);
+void RT_force_future(Channel *chan, void *data, unsigned int size);
 void RT_force_future_channel(Channel *chan, void *data, unsigned int size);
 void RT_force_future_channel(Channel *chan);
 void RT_taskwait(atomic_t *num_children);
