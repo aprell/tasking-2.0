@@ -545,7 +545,7 @@ static inline bool RECV_REQ(struct steal_request *req)
 			}
 			// Are all workers idle?
 			ret && register_idle(req) && detect_termination();
-			assert(ret && !req->is_update || !ret);
+			assert((ret && !req->is_update) || !ret);
 		}
 #endif
 	} // PROFILE
@@ -1523,7 +1523,7 @@ Task *pop(void)
 	if (!task) HAVE_NO_TASKS();
 #endif
 
-	if (task && !task->is_loop || !task) {
+	if ((task && !task->is_loop) || !task) {
 		UPDATE();
 	}
 
@@ -1554,7 +1554,7 @@ Task *pop_child(void)
 		task = deque_list_tl_pop_child(deque, get_current_task());
 	}
 
-	if (task && !task->is_loop || !task) {
+	if ((task && !task->is_loop) || !task) {
 		UPDATE();
 	}
 
