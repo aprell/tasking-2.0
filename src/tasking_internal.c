@@ -11,7 +11,6 @@
 #define UNUSED __attribute__((unused))
 
 // Shared state
-atomic_t *tasking_finished;
 atomic_t *num_tasks_exec;
 #ifdef DISABLE_MANAGER
 atomic_t *td_count;
@@ -22,6 +21,7 @@ int num_workers;
 PRIVATE int ID;
 PRIVATE int num_tasks_exec_worker;
 PRIVATE int worker_state; // currently unused
+PRIVATE bool tasking_finished;
 
 // Pointer to the task that is currently running
 PRIVATE Task *current_task;
@@ -67,17 +67,15 @@ int tasking_internal_init(int *argc UNUSED, char ***argv UNUSED)
 	num_cpus = cpu_count();
 	printf("Number of CPUs: %d\n", num_cpus);
 
-	// Probability of introducing false sharing
+	// Beware of false sharing!
 	//tasking_finished = (int *)malloc(sizeof(int));
 	//num_tasks_exec   = (int *)malloc(sizeof(int));
 
-	tasking_finished = (atomic_t *)malloc(64 * sizeof(atomic_t));
-	num_tasks_exec   = (atomic_t *)malloc(64 * sizeof(atomic_t));
+	num_tasks_exec = (atomic_t *)malloc(64 * sizeof(atomic_t));
 #ifdef DISABLE_MANAGER
-	td_count         = (atomic_t *)malloc(64 * sizeof(atomic_t));
+	td_count       = (atomic_t *)malloc(64 * sizeof(atomic_t));
 #endif
 
-	atomic_set(tasking_finished, 0);
 	atomic_set(num_tasks_exec, 0);
 #ifdef DISABLE_MANAGER
 	atomic_set(td_count, 0);
@@ -125,9 +123,12 @@ int tasking_internal_init(int *argc UNUSED, char ***argv UNUSED)
 	return 0;
 }
 
+extern void notify_workers(void);
+
 int tasking_internal_exit_signal(void)
 {
-	atomic_set(tasking_finished, 1);
+	notify_workers();
+	tasking_finished = true;
 
 	return 0;
 }
@@ -198,7 +199,6 @@ int tasking_internal_exit(void)
 	pthread_barrier_destroy(&global_barrier);
 	free(worker_threads);
 	free(IDs);
-	free(tasking_finished);
 	free(num_tasks_exec);
 #ifdef DISABLE_MANAGER
 	free(td_count);
@@ -230,5 +230,5 @@ bool tasking_all_idle(void)
 
 bool tasking_done(void)
 {
-	return atomic_read(tasking_finished) == 1;
+	return tasking_finished;
 }

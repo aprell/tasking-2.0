@@ -660,7 +660,27 @@ static inline bool unregister_idle(struct steal_request *req)
 	return false;
 }
 
-static void confirm_termination(UNUSED(void *args))
+// Asynchronous call of function fn on worker ID
+// Executed for side effects only
+static void async_action(void (*fn)(void), int ID)
+{
+	// Package up and send a dummy task
+	PROFILE(SEND_RECV_TASK) {
+
+	Task *dummy = task_alloc();
+	dummy->fn = (void (*)(void *))fn;
+	dummy->batch = 1;
+#ifdef STEAL_LASTVICTIM
+	dummy->victim = ID;
+#endif
+	while (!channel_send(chan_tasks[ID], (void *)&dummy, sizeof(Task *))) ;
+
+	} // PROFILE
+}
+
+#define ASYNC_ACTION(fn) void fn()
+
+static ASYNC_ACTION(confirm_termination)
 {
 	assert(!requested);
 	requested = true;
@@ -680,18 +700,7 @@ static inline bool detect_termination(void)
 
 	if (!after_barrier && quiescent && !channel_peek(chan_tasks[MASTER_ID])) {
 #if MANAGER_ID != MASTER_ID
-		// Package up and send a dummy task
-		PROFILE(SEND_RECV_TASK) {
-
-		Task *dummy = task_alloc();
-		dummy->fn = (void (*)(void *))confirm_termination;
-		dummy->batch = 1;
-#ifdef STEAL_LASTVICTIM
-		dummy->victim = ID;
-#endif
-		channel_send(chan_tasks[MASTER_ID], (void *)&dummy, sizeof(Task *));
-
-		} // PROFILE
+		async_action(confirm_termination, MASTER_ID);
 #endif
 		//LOG("Termination confirmed\n");
 		after_barrier = true;
@@ -699,6 +708,26 @@ static inline bool detect_termination(void)
 	}
 
 	return false;
+}
+
+// Notify each other when it's time to shut down
+ASYNC_ACTION(notify_workers)
+{
+	assert(!tasking_finished);
+
+	int child = 2*ID + 1;
+
+	if (child < num_workers) {
+		async_action(notify_workers, child);
+	}
+
+	if (child + 1 < num_workers) {
+		async_action(notify_workers, child + 1);
+	}
+
+	WORKER num_tasks_exec_worker--;
+
+	tasking_finished = true;
 }
 
 // Send steal request when number of local tasks <= REQ_THRESHOLD
@@ -1090,10 +1119,6 @@ void *schedule(UNUSED(void *args))
 				assert(!steal_backoff_waiting);
 			}
 #endif
-			if (tasking_done()) {
-				PROFILE_STOP(IDLE);
-				goto schedule_exit;
-			}
 		}
 
 		} // PROFILE
@@ -1122,9 +1147,10 @@ void *schedule(UNUSED(void *args))
 #endif
 		PROFILE(RUN_TASK) run_task(task);
 		PROFILE(ENQ_DEQ_TASK) deque_list_tl_task_cache(deque, task);
+
+		if (tasking_done()) break;
 	}
 
-schedule_exit:
 	return 0;
 }
 
@@ -1139,7 +1165,7 @@ int RT_schedule(void)
 }
 
 #ifdef OPTIMIZE_BARRIER
-static void run_dummy(UNUSED(void *args))
+static ASYNC_ACTION(run_dummy_task)
 {
 	assert(!requested);
 #if MANAGER_ID == MASTER_ID
@@ -1244,18 +1270,7 @@ RT_barrier_exit:
 		assert(requested);
 		requested = false;
 	} else {
-		// Package up and send a dummy task
-		PROFILE(SEND_RECV_TASK) {
-
-		Task *dummy = task_alloc();
-		dummy->fn = (void (*)(void *))run_dummy;
-		dummy->batch = 1;
-#ifdef STEAL_LASTVICTIM
-		dummy->victim = ID;
-#endif
-		channel_send(req.chan, (void *)&dummy, sizeof(Task *));
-
-		} // PROFILE
+		async_action(run_dummy_task, req.ID);
 	}
 #else
 	// Remove own steal request to reflect the fact that the computation continues

@@ -14,7 +14,6 @@
 #define WORKER if (ID != MASTER_ID)
 
 // Shared state
-extern atomic_t *tasking_finished;
 extern atomic_t *num_tasks_exec;
 #ifdef DISABLE_MANAGER
 extern atomic_t *td_count;
@@ -27,6 +26,7 @@ extern PRIVATE int ID;
 extern PRIVATE int num_tasks_exec_worker;
 extern PRIVATE int num_tasks_exec_recently;
 extern PRIVATE int worker_state; // unused unless manager is disabled
+extern PRIVATE bool tasking_finished;
 
 // Pointer to the task that is currently running
 extern PRIVATE Task *current_task;
