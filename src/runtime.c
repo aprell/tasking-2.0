@@ -688,7 +688,7 @@ static ASYNC_ACTION(confirm_termination)
 #ifdef STEAL_ADAPTIVE
 	num_steals_exec_recently--;
 #endif
-	num_tasks_exec_worker--;
+	num_tasks_exec--;
 }
 
 static inline bool detect_termination(void)
@@ -725,7 +725,7 @@ ASYNC_ACTION(notify_workers)
 		async_action(notify_workers, child + 1);
 	}
 
-	WORKER num_tasks_exec_worker--;
+	WORKER num_tasks_exec--;
 
 	tasking_finished = true;
 }
@@ -1183,7 +1183,7 @@ static ASYNC_ACTION(run_dummy_task)
 	stealhalf == true ?  requests_steal_half++ : requests_steal_one++;
 #endif
 	SEND_REQ_WORKER(MASTER_ID, &steal_req);
-	num_tasks_exec_worker--;
+	num_tasks_exec--;
 }
 #endif
 

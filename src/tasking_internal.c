@@ -18,7 +18,7 @@ int num_workers;
 
 // Private state
 PRIVATE int ID;
-PRIVATE int num_tasks_exec_worker;
+PRIVATE int num_tasks_exec;
 PRIVATE int worker_state; // currently unused
 PRIVATE bool tasking_finished;
 
@@ -35,7 +35,7 @@ static void *worker_entry_fn(void *args)
 {
 	ID = *(int *)args;
 	set_current_task(NULL);
-	num_tasks_exec_worker = 0;
+	num_tasks_exec = 0;
 
 	RT_init();
 	tasking_internal_barrier();
@@ -112,7 +112,7 @@ int tasking_internal_init(int *argc UNUSED, char ***argv UNUSED)
 	current_task->chunks = 0;
 	current_task->sst = 0;
 
-	num_tasks_exec_worker = 0;
+	num_tasks_exec = 0;
 
 	return 0;
 }
@@ -158,7 +158,7 @@ int tasking_internal_statistics(void)
 	printf("Worker %d: %u steal requests sent\n", ID, requests_sent);
 	printf("Worker %d: %u steal requests handled\n", ID, requests_handled);
 	printf("Worker %d: %u steal requests declined\n", ID, requests_declined);
-	printf("Worker %d: %u tasks executed\n", ID, num_tasks_exec_worker);
+	printf("Worker %d: %u tasks executed\n", ID, num_tasks_exec);
 	printf("Worker %d: %u tasks sent\n", ID, tasks_sent);
 	printf("Worker %d: %u tasks split\n", ID, tasks_split);
 #ifdef STEAL_BACKOFF

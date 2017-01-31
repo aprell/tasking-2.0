@@ -22,7 +22,7 @@ extern int num_workers;
 
 // Private state
 extern PRIVATE int ID;
-extern PRIVATE int num_tasks_exec_worker;
+extern PRIVATE int num_tasks_exec;
 extern PRIVATE int num_tasks_exec_recently;
 extern PRIVATE int worker_state; // unused unless manager is disabled
 extern PRIVATE bool tasking_finished;
@@ -102,12 +102,12 @@ static inline void run_task(Task *task)
 	if (task->is_loop) {
 		// We have executed |end-start| iterations
 		int n = abs(task->end - task->start);
-		num_tasks_exec_worker += n;
+		num_tasks_exec += n;
 #ifdef STEAL_ADAPTIVE
 		num_tasks_exec_recently += n;
 #endif
 	} else {
-		num_tasks_exec_worker++;
+		num_tasks_exec++;
 #ifdef STEAL_ADAPTIVE
 		num_tasks_exec_recently++;
 #endif
