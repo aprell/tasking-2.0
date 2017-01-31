@@ -56,7 +56,7 @@ int main(int argc, char *argv[])
 
 	LOG("%d\n", total);
 	assert(total == (N*(N+1))/2);
-	assert(tasking_tasks_exec() == N+1);
+	//assert(tasking_tasks_exec() == N+1);
 
 	TASKING_BARRIER();
 	TASKING_EXIT();

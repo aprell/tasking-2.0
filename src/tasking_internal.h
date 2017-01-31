@@ -14,7 +14,6 @@
 #define WORKER if (ID != MASTER_ID)
 
 // Shared state
-extern atomic_t *num_tasks_exec;
 #ifdef DISABLE_MANAGER
 extern atomic_t *td_count;
 #endif
@@ -103,13 +102,11 @@ static inline void run_task(Task *task)
 	if (task->is_loop) {
 		// We have executed |end-start| iterations
 		int n = abs(task->end - task->start);
-		//atomic_add(n, num_tasks_exec);
 		num_tasks_exec_worker += n;
 #ifdef STEAL_ADAPTIVE
 		num_tasks_exec_recently += n;
 #endif
 	} else {
-		//atomic_inc(num_tasks_exec);
 		num_tasks_exec_worker++;
 #ifdef STEAL_ADAPTIVE
 		num_tasks_exec_recently++;
@@ -122,7 +119,6 @@ int tasking_internal_exit_signal(void);
 int tasking_internal_exit(void);
 int tasking_internal_barrier(void);
 int tasking_internal_statistics(void);
-int tasking_tasks_exec(void);
 #ifdef DISABLE_MANAGER
 bool tasking_all_idle(void);
 #endif

@@ -11,7 +11,6 @@
 #define UNUSED __attribute__((unused))
 
 // Shared state
-atomic_t *num_tasks_exec;
 #ifdef DISABLE_MANAGER
 atomic_t *td_count;
 #endif
@@ -68,16 +67,11 @@ int tasking_internal_init(int *argc UNUSED, char ***argv UNUSED)
 	printf("Number of CPUs: %d\n", num_cpus);
 
 	// Beware of false sharing!
-	//tasking_finished = (int *)malloc(sizeof(int));
-	//num_tasks_exec   = (int *)malloc(sizeof(int));
+	// int *shared_var_a = (int *)malloc(sizeof(int));
+	// int *shared_var_b = (int *)malloc(sizeof(int));
 
-	num_tasks_exec = (atomic_t *)malloc(64 * sizeof(atomic_t));
 #ifdef DISABLE_MANAGER
-	td_count       = (atomic_t *)malloc(64 * sizeof(atomic_t));
-#endif
-
-	atomic_set(num_tasks_exec, 0);
-#ifdef DISABLE_MANAGER
+	td_count = (atomic_t *)malloc(64 * sizeof(atomic_t));
 	atomic_set(td_count, 0);
 #endif
 
@@ -199,7 +193,6 @@ int tasking_internal_exit(void)
 	pthread_barrier_destroy(&global_barrier);
 	free(worker_threads);
 	free(IDs);
-	free(num_tasks_exec);
 #ifdef DISABLE_MANAGER
 	free(td_count);
 #endif
@@ -214,11 +207,6 @@ int tasking_internal_exit(void)
 int tasking_internal_barrier(void)
 {
 	return pthread_barrier_wait(&global_barrier);
-}
-
-int tasking_tasks_exec(void)
-{
-	return atomic_read(num_tasks_exec);
 }
 
 #ifdef DISABLE_MANAGER
