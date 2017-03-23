@@ -51,6 +51,7 @@ brg_sha1.c \
 cilksort.c getoptions.c \
 nqueens.c \
 loopsched.c \
+futures_api.c \
 $(channel_SRCS) \
 $(tasking_SRCS) \
 $(runtime_SRCS)
@@ -60,7 +61,7 @@ libtasking_SRCS = $(runtime_SRCS) $(channel_SRCS) $(tasking_SRCS)
 #//// ALL PROGRAMS /////////////////////////////////////////////////////////#
 
 PROGS = sum fibgen looptest spc bpc fib-like qsort barrier mm lu nbody3
-PROGS += uts-seq uts-par cilksort nqueens loopsched
+PROGS += uts-seq uts-par cilksort nqueens loopsched futures_api
 
 #//// BENCHMARK PROGRAMS ///////////////////////////////////////////////////#
 
@@ -85,9 +86,10 @@ loopsched_SRCS  = loopsched.c $(libtasking_SRCS)
 sum_SRCS = sum.c $(libtasking_SRCS)
 sum_LIBS =
 
-fibgen_SRCS 	= fibgen.c $(libtasking_SRCS)
-looptest_SRCS	= looptest.c $(libtasking_SRCS)
-barrier_SRCS 	= barrier.c $(libtasking_SRCS)
+fibgen_SRCS 	 = fibgen.c $(libtasking_SRCS)
+looptest_SRCS	 = looptest.c $(libtasking_SRCS)
+barrier_SRCS 	 = barrier.c $(libtasking_SRCS)
+futures_api_SRCS = futures_api.c $(libtasking_SRCS)
 
 VPATH += channel_shm test test/rng
 

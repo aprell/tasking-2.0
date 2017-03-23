@@ -126,11 +126,28 @@ typedef chan future;
 
 #define new_future(f) new_##f##_future()
 
+// Required struct declarations for joining multiple futures
+//
+// Indirection needed for types which are themselves defined as macros
+// Suppose type is bool: TUPLE_DECL(bool) would declare struct tuple_2_bool,
+// struct tuple_3_bool, etc, instead of struct tuple_2__Bool, struct
+// tuple_3__Bool, etc.
+// Explained by Argument Prescan: "Macro arguments are completely
+// macro-expanded before they are substituted into a macro body, UNLESS they
+// are stringized or pasted with other tokens." (emphasis added)
+#define TUPLE_DECL_IMPL(type) \
+struct tuple_2_##type { type _0, _1; }; \
+struct tuple_3_##type { type _0, _1, _2; }; \
+struct tuple_4_##type { type _0, _1, _2, _3; }; \
+struct tuple_5_##type { type _0, _1, _2, _3, _4; };
+
+#define TUPLE_DECL(type) TUPLE_DECL_IMPL(type)
+
 #ifdef CACHE_FUTURES
 #ifndef FUTURE_FREELIST_SIZE
 #define FUTURE_FREELIST_SIZE 4000
 #endif
-#define FUTURE_DECL_FREELIST(type) \
+#define FUTURE_DECL_FREELIST_IMPL(type) \
 static PRIVATE unsigned int __future_##type##_freelist_items = 0; \
 static PRIVATE future __future_##type##_freelist[FUTURE_FREELIST_SIZE]; \
 static void __future_##type##_freelist_prealloc(void) \
@@ -143,6 +160,7 @@ static void __future_##type##_freelist_prealloc(void) \
 	} \
 	__future_##type##_freelist_items = i; \
 }
+#define FUTURE_DECL_FREELIST(type) FUTURE_DECL_FREELIST_IMPL(type)
 #else
 #define FUTURE_DECL_FREELIST(type) // empty
 #endif // CACHE_FUTURES
@@ -352,19 +370,156 @@ extern void RT_force_future_channel(Channel *, void *, unsigned int);
 	*(p); \
 })
 
+#define __AWAIT_IMPL2(_, n, ...) __AWAIT ## n(_, __VA_ARGS__)
+#define __AWAIT_IMPL(_, n, ...) __AWAIT_IMPL2(_, n, __VA_ARGS__)
+#define __AWAIT(_, ...) __AWAIT_IMPL(_, VA_NARGS(__VA_ARGS__), __VA_ARGS__)
+
 // Returns the result of evaluating future f
 // type is used to declare a temporary variable
 #ifdef CACHE_FUTURES
-#define __AWAIT(f, type) \
+#define __AWAIT1(f, type) \
 ({ \
+	future f_ = (f); \
 	type __tmp; \
-	RT_force_future_channel(chanref_get(f), &__tmp, sizeof(__tmp)); \
+	RT_force_future_channel(chanref_get(f_), &__tmp, sizeof(__tmp)); \
 	if (__future_##type##_freelist_items < FUTURE_FREELIST_SIZE) { \
-		__future_##type##_freelist[__future_##type##_freelist_items++] = (f); \
+		__future_##type##_freelist[__future_##type##_freelist_items++] = (f_); \
 	} else { \
-		channel_free(chanref_get(f)); \
+		channel_free(chanref_get(f_)); \
 	} \
 	__tmp; \
+})
+#define __AWAIT2(f1, f2, type) \
+({ \
+	future f1_ = (f1); \
+	future f2_ = (f2); \
+	struct tuple_2_##type res; \
+	/* Force future f1_ */ \
+	RT_force_future_channel(chanref_get(f1_), &res._0, sizeof(res._0)); \
+	if (__future_##type##_freelist_items < FUTURE_FREELIST_SIZE) { \
+		__future_##type##_freelist[__future_##type##_freelist_items++] = (f1_); \
+	} else { \
+		channel_free(chanref_get(f1_)); \
+	} \
+	/* Force future f2_ */ \
+	RT_force_future_channel(chanref_get(f2_), &res._1, sizeof(res._1)); \
+	if (__future_##type##_freelist_items < FUTURE_FREELIST_SIZE) { \
+		__future_##type##_freelist[__future_##type##_freelist_items++] = (f2_); \
+	} else { \
+		channel_free(chanref_get(f2_)); \
+	} \
+	res; \
+})
+#define __AWAIT3(f1, f2, f3, type) \
+({ \
+	future f1_ = (f1); \
+	future f2_ = (f2); \
+	future f3_ = (f3); \
+	struct tuple_3_##type res; \
+	/* Force future f1_ */ \
+	RT_force_future_channel(chanref_get(f1_), &res._0, sizeof(res._0)); \
+	if (__future_##type##_freelist_items < FUTURE_FREELIST_SIZE) { \
+		__future_##type##_freelist[__future_##type##_freelist_items++] = (f1_); \
+	} else { \
+		channel_free(chanref_get(f1_)); \
+	} \
+	/* Force future f2_ */ \
+	RT_force_future_channel(chanref_get(f2_), &res._1, sizeof(res._1)); \
+	if (__future_##type##_freelist_items < FUTURE_FREELIST_SIZE) { \
+		__future_##type##_freelist[__future_##type##_freelist_items++] = (f2_); \
+	} else { \
+		channel_free(chanref_get(f2_)); \
+	} \
+	/* Force future f3_ */ \
+	RT_force_future_channel(chanref_get(f3_), &res._2, sizeof(res._2)); \
+	if (__future_##type##_freelist_items < FUTURE_FREELIST_SIZE) { \
+		__future_##type##_freelist[__future_##type##_freelist_items++] = (f3_); \
+	} else { \
+		channel_free(chanref_get(f3_)); \
+	} \
+	res; \
+})
+#define __AWAIT4(f1, f2, f3, f4, type) \
+({ \
+	future f1_ = (f1); \
+	future f2_ = (f2); \
+	future f3_ = (f3); \
+	future f4_ = (f4); \
+	struct tuple_4_##type res; \
+	/* Force future f1_ */ \
+	RT_force_future_channel(chanref_get(f1_), &res._0, sizeof(res._0)); \
+	if (__future_##type##_freelist_items < FUTURE_FREELIST_SIZE) { \
+		__future_##type##_freelist[__future_##type##_freelist_items++] = (f1_); \
+	} else { \
+		channel_free(chanref_get(f1_)); \
+	} \
+	/* Force future f2_ */ \
+	RT_force_future_channel(chanref_get(f2_), &res._1, sizeof(res._1)); \
+	if (__future_##type##_freelist_items < FUTURE_FREELIST_SIZE) { \
+		__future_##type##_freelist[__future_##type##_freelist_items++] = (f2_); \
+	} else { \
+		channel_free(chanref_get(f2_)); \
+	} \
+	/* Force future f3_ */ \
+	RT_force_future_channel(chanref_get(f3_), &res._2, sizeof(res._2)); \
+	if (__future_##type##_freelist_items < FUTURE_FREELIST_SIZE) { \
+		__future_##type##_freelist[__future_##type##_freelist_items++] = (f3_); \
+	} else { \
+		channel_free(chanref_get(f3_)); \
+	} \
+	/* Force future f4_ */ \
+	RT_force_future_channel(chanref_get(f4_), &res._3, sizeof(res._3)); \
+	if (__future_##type##_freelist_items < FUTURE_FREELIST_SIZE) { \
+		__future_##type##_freelist[__future_##type##_freelist_items++] = (f4_); \
+	} else { \
+		channel_free(chanref_get(f4_)); \
+	} \
+	res; \
+})
+#define __AWAIT5(f1, f2, f3, f4, f5, type) \
+({ \
+	future f1_ = (f1); \
+	future f2_ = (f2); \
+	future f3_ = (f3); \
+	future f4_ = (f4); \
+	future f5_ = (f5); \
+	struct tuple_5_##type res; \
+	/* Force future f1_ */ \
+	RT_force_future_channel(chanref_get(f1_), &res._0, sizeof(res._0)); \
+	if (__future_##type##_freelist_items < FUTURE_FREELIST_SIZE) { \
+		__future_##type##_freelist[__future_##type##_freelist_items++] = (f1_); \
+	} else { \
+		channel_free(chanref_get(f1_)); \
+	} \
+	/* Force future f2_ */ \
+	RT_force_future_channel(chanref_get(f2_), &res._1, sizeof(res._1)); \
+	if (__future_##type##_freelist_items < FUTURE_FREELIST_SIZE) { \
+		__future_##type##_freelist[__future_##type##_freelist_items++] = (f2_); \
+	} else { \
+		channel_free(chanref_get(f2_)); \
+	} \
+	/* Force future f3_ */ \
+	RT_force_future_channel(chanref_get(f3_), &res._2, sizeof(res._2)); \
+	if (__future_##type##_freelist_items < FUTURE_FREELIST_SIZE) { \
+		__future_##type##_freelist[__future_##type##_freelist_items++] = (f3_); \
+	} else { \
+		channel_free(chanref_get(f3_)); \
+	} \
+	/* Force future f4_ */ \
+	RT_force_future_channel(chanref_get(f4_), &res._3, sizeof(res._3)); \
+	if (__future_##type##_freelist_items < FUTURE_FREELIST_SIZE) { \
+		__future_##type##_freelist[__future_##type##_freelist_items++] = (f4_); \
+	} else { \
+		channel_free(chanref_get(f4_)); \
+	} \
+	/* Force future f5_ */ \
+	RT_force_future_channel(chanref_get(f5_), &res._4, sizeof(res._4)); \
+	if (__future_##type##_freelist_items < FUTURE_FREELIST_SIZE) { \
+		__future_##type##_freelist[__future_##type##_freelist_items++] = (f5_); \
+	} else { \
+		channel_free(chanref_get(f5_)); \
+	} \
+	res; \
 })
 #define __AWAIT_VOID(f) \
 do { \
@@ -376,12 +531,89 @@ do { \
 	} \
 } while (0)
 #else
-#define __AWAIT(f, type) \
+#define __AWAIT1(f, type) \
 ({ \
+	future f_ = (f); \
 	type __tmp; \
-	RT_force_future_channel(chanref_get(f), &__tmp, sizeof(__tmp)); \
-	channel_free(chanref_get(f)); \
+	RT_force_future_channel(chanref_get(f_), &__tmp, sizeof(__tmp)); \
+	channel_free(chanref_get(f_)); \
 	__tmp; \
+})
+#define __AWAIT2(f1, f2, type) \
+({ \
+	future f1_ = (f1); \
+	future f2_ = (f2); \
+	struct tuple_2_##type res; \
+	/* Force future f1_ */ \
+	RT_force_future_channel(chanref_get(f1_), &res._0, sizeof(res._0)); \
+	channel_free(chanref_get(f1_)); \
+	/* Force future f2_ */ \
+	RT_force_future_channel(chanref_get(f2_), &res._1, sizeof(res._1)); \
+	channel_free(chanref_get(f2_)); \
+	res; \
+})
+#define __AWAIT3(f1, f2, f3, type) \
+({ \
+	future f1_ = (f1); \
+	future f2_ = (f2); \
+	future f3_ = (f3); \
+	struct tuple_3_##type res; \
+	/* Force future f1_ */ \
+	RT_force_future_channel(chanref_get(f1_), &res._0, sizeof(res._0)); \
+	channel_free(chanref_get(f1_)); \
+	/* Force future f2_ */ \
+	RT_force_future_channel(chanref_get(f2_), &res._1, sizeof(res._1)); \
+	channel_free(chanref_get(f2_)); \
+	/* Force future f3_ */ \
+	RT_force_future_channel(chanref_get(f3_), &res._2, sizeof(res._2)); \
+	channel_free(chanref_get(f3_)); \
+	res; \
+})
+#define __AWAIT4(f1, f2, f3, f4, type) \
+({ \
+	future f1_ = (f1); \
+	future f2_ = (f2); \
+	future f3_ = (f3); \
+	future f4_ = (f4); \
+	struct tuple_4_##type res; \
+	/* Force future f1_ */ \
+	RT_force_future_channel(chanref_get(f1_), &res._0, sizeof(res._0)); \
+	channel_free(chanref_get(f1_)); \
+	/* Force future f2_ */ \
+	RT_force_future_channel(chanref_get(f2_), &res._1, sizeof(res._1)); \
+	channel_free(chanref_get(f2_)); \
+	/* Force future f3_ */ \
+	RT_force_future_channel(chanref_get(f3_), &res._2, sizeof(res._2)); \
+	channel_free(chanref_get(f3_)); \
+	/* Force future f4_ */ \
+	RT_force_future_channel(chanref_get(f4_), &res._3, sizeof(res._3)); \
+	channel_free(chanref_get(f4_)); \
+	res; \
+})
+#define __AWAIT5(f1, f2, f3, f4, f5, type) \
+({ \
+	future f1_ = (f1); \
+	future f2_ = (f2); \
+	future f3_ = (f3); \
+	future f4_ = (f4); \
+	future f5_ = (f5); \
+	struct tuple_5_##type res; \
+	/* Force future f1_ */ \
+	RT_force_future_channel(chanref_get(f1_), &res._0, sizeof(res._0)); \
+	channel_free(chanref_get(f1_)); \
+	/* Force future f2_ */ \
+	RT_force_future_channel(chanref_get(f2_), &res._1, sizeof(res._1)); \
+	channel_free(chanref_get(f2_)); \
+	/* Force future f3_ */ \
+	RT_force_future_channel(chanref_get(f3_), &res._2, sizeof(res._2)); \
+	channel_free(chanref_get(f3_)); \
+	/* Force future f4_ */ \
+	RT_force_future_channel(chanref_get(f4_), &res._3, sizeof(res._3)); \
+	channel_free(chanref_get(f4_)); \
+	/* Force future f5_ */ \
+	RT_force_future_channel(chanref_get(f5_), &res._4, sizeof(res._4)); \
+	channel_free(chanref_get(f5_)); \
+	res; \
 })
 #define __AWAIT_VOID(f) \
 do { \
