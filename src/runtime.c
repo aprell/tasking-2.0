@@ -109,7 +109,7 @@ static PRIVATE bool requested;
 static PRIVATE int last_victim = -1;
 #endif
 
-#ifdef STEAL_LEAPFROG
+#ifdef STEAL_LASTTHIEF
 // ID of last thief
 static PRIVATE int last_thief = -1;
 #endif
@@ -480,15 +480,15 @@ static inline int lastvictim(struct steal_request *req)
 }
 #endif // STEAL_LASTVICTIM
 
-#ifdef STEAL_LEAPFROG
+#ifdef STEAL_LASTTHIEF
 #ifndef STEAL_RANDOM
-#error "STEAL_LEAPFROG depends on STEAL_RANDOM"
+#error "STEAL_LASTTHIEF depends on STEAL_RANDOM"
 #endif
-static inline int leapfrog(struct steal_request *req)
+static inline int lastthief(struct steal_request *req)
 {
 	int victim;
 
-	if (req->try < my_partition->num_workers_rt-1) {
+	if (req->try < MAX_STEAL_ATTEMPTS) {
 		if (last_thief != -1 && last_thief != req->ID && LIKELY_HAS_TASKS(last_thief)) {
 			victim = last_thief;
 			return victim;
@@ -497,12 +497,9 @@ static inline int leapfrog(struct steal_request *req)
 		return next_victim(req);
 	}
 
-	victim = victims[req->ID][my_partition->num_workers_rt-1];
-	assert(victim == req->ID);
-
-	return victim;
+	return req->ID;
 }
-#endif // STEAL_LEAPFROG
+#endif // STEAL_LASTTHIEF
 
 static inline void UPDATE(void);
 static inline void send_steal_request(bool);
@@ -775,8 +772,8 @@ static inline void send_steal_request(bool idle)
 		copy_victims();
 #ifdef STEAL_LASTVICTIM
 		SEND_REQ_WORKER(lastvictim(&steal_req), &steal_req);
-#elif defined STEAL_LEAPFROG
-		SEND_REQ_WORKER(leapfrog(&steal_req), &steal_req);
+#elif defined STEAL_LASTTHIEF
+		SEND_REQ_WORKER(lastthief(&steal_req), &steal_req);
 #else
 		SEND_REQ_WORKER(next_victim(&steal_req), &steal_req);
 #endif
@@ -823,8 +820,8 @@ static inline void resend_steal_request(void)
 	copy_victims();
 #ifdef STEAL_LASTVICTIM
 	SEND_REQ_WORKER(lastvictim(&last_steal_req), &last_steal_req);
-#elif defined STEAL_LEAPFROG
-	SEND_REQ_WORKER(leapfrog(&last_steal_req), &last_steal_req);
+#elif defined STEAL_LASTTHIEF
+	SEND_REQ_WORKER(lastthief(&last_steal_req), &last_steal_req);
 #else
 	SEND_REQ_WORKER(next_victim(&last_steal_req), &last_steal_req);
 #endif
@@ -1034,7 +1031,7 @@ static void handle_steal_request(struct steal_request *req)
 		//LOG("Worker %2d: sending %d tasks to worker %d\n", ID, loot, req->ID);
 		requests_handled++;
 		tasks_sent += loot;
-#ifdef STEAL_LEAPFROG
+#ifdef STEAL_LASTTHIEF
 		last_thief = req->ID;
 #endif
 
@@ -1738,7 +1735,7 @@ static void split_loop(Task *task, struct steal_request *req)
 	channel_send(req->chan, (void *)&dup, sizeof(dup));
 	requests_handled++;
 	tasks_sent++;
-#ifdef STEAL_LEAPFROG
+#ifdef STEAL_LASTTHIEF
 	last_thief = req->ID;
 #endif
 
