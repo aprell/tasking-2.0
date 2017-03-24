@@ -671,7 +671,7 @@ static void async_action(void (*fn)(void), int ID)
 	dummy->fn = (void (*)(void *))fn;
 	dummy->batch = 1;
 #ifdef STEAL_LASTVICTIM
-	dummy->victim = ID;
+	dummy->victim = -1;
 #endif
 	while (!channel_send(chan_tasks[ID], (void *)&dummy, sizeof(Task *))) ;
 
@@ -1124,8 +1124,10 @@ void *schedule(UNUSED(void *args))
 		} // PROFILE
 		loot = task->batch;
 #ifdef STEAL_LASTVICTIM
-		last_victim = task->victim;
-		assert(last_victim != ID);
+		if (task->victim != -1) {
+			last_victim = task->victim;
+			assert(last_victim != ID);
+		}
 #endif
 		if (loot > 1) {
 			PROFILE(ENQ_DEQ_TASK) task = deque_list_tl_pop(deque_list_tl_prepend(deque, task, loot));
@@ -1236,8 +1238,10 @@ empty_local_queue:
 	} // PROFILE
 	loot = task->batch;
 #ifdef STEAL_LASTVICTIM
-	last_victim = task->victim;
-	assert(last_victim != ID);
+	if (task->victim != -1) {
+		last_victim = task->victim;
+		assert(last_victim != ID);
+	}
 #endif
 	if (loot > 1) {
 		PROFILE(ENQ_DEQ_TASK) task = deque_list_tl_pop(deque_list_tl_prepend(deque, task, loot));
@@ -1340,8 +1344,10 @@ void RT_force_future_channel(Channel *chan, void *data, unsigned int size)
 		} // PROFILE
 		loot = task->batch;
 #ifdef STEAL_LASTVICTIM
-		last_victim = task->victim;
-		assert(last_victim != ID);
+		if (task->victim != -1) {
+			last_victim = task->victim;
+			assert(last_victim != ID);
+		}
 #endif
 		if (loot > 1) {
 			PROFILE(ENQ_DEQ_TASK) task = deque_list_tl_pop(deque_list_tl_prepend(deque, task, loot));
@@ -1411,8 +1417,10 @@ void RT_force_future_channel(Channel *chan)
 		} // PROFILE
 		loot = task->batch;
 #ifdef STEAL_LASTVICTIM
-		last_victim = task->victim;
-		assert(last_victim != ID);
+		if (task->victim != -1) {
+			last_victim = task->victim;
+			assert(last_victim != ID);
+		}
 #endif
 		if (loot > 1) {
 			PROFILE(ENQ_DEQ_TASK) task = deque_list_tl_pop(deque_list_tl_prepend(deque, task, loot));
@@ -1486,8 +1494,10 @@ void RT_taskwait(atomic_t *num_children)
 		} // PROFILE
 		loot = task->batch;
 #ifdef STEAL_LASTVICTIM
-		last_victim = task->victim;
-		assert(last_victim != ID);
+		if (task->victim != -1) {
+			last_victim = task->victim;
+			assert(last_victim != ID);
+		}
 #endif
 		if (loot > 1) {
 			PROFILE(ENQ_DEQ_TASK) task = deque_list_tl_pop(deque_list_tl_prepend(deque, task, loot));
