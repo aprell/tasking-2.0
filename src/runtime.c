@@ -459,17 +459,17 @@ static inline int next_victim(struct steal_request *req)
 }
 #endif // STEAL_RANDOM_RR
 
-#ifdef STEAL_LASTVICTIM
+#if defined STEAL_LASTVICTIM || defined STEAL_LASTTHIEF
 #ifndef STEAL_RANDOM
-#error "STEAL_LASTVICTIM depends on STEAL_RANDOM"
+#error "STEAL_LASTVICTIM and STEAL_LASTTHIEF depend on STEAL_RANDOM"
 #endif
-static inline int lastvictim(struct steal_request *req)
+static inline int steal_from(struct steal_request *req, int worker)
 {
 	int victim;
 
 	if (req->try < MAX_STEAL_ATTEMPTS) {
-		if (last_victim != -1 && last_victim != req->ID && LIKELY_HAS_TASKS(last_victim)) {
-			victim = last_victim;
+		if (worker != -1 && worker != req->ID && LIKELY_HAS_TASKS(worker)) {
+			victim = worker;
 			return victim;
 		}
 		// Fall back to random victim selection
@@ -478,28 +478,7 @@ static inline int lastvictim(struct steal_request *req)
 
 	return req->ID;
 }
-#endif // STEAL_LASTVICTIM
-
-#ifdef STEAL_LASTTHIEF
-#ifndef STEAL_RANDOM
-#error "STEAL_LASTTHIEF depends on STEAL_RANDOM"
-#endif
-static inline int lastthief(struct steal_request *req)
-{
-	int victim;
-
-	if (req->try < MAX_STEAL_ATTEMPTS) {
-		if (last_thief != -1 && last_thief != req->ID && LIKELY_HAS_TASKS(last_thief)) {
-			victim = last_thief;
-			return victim;
-		}
-		// Fall back to random victim selection
-		return next_victim(req);
-	}
-
-	return req->ID;
-}
-#endif // STEAL_LASTTHIEF
+#endif // STEAL_LASTVICTIM || STEAL_LASTTHIEF
 
 static inline void UPDATE(void);
 static inline void send_steal_request(bool);
@@ -771,9 +750,9 @@ static inline void send_steal_request(bool idle)
 		shuffle_victims();
 		copy_victims();
 #ifdef STEAL_LASTVICTIM
-		SEND_REQ_WORKER(lastvictim(&steal_req), &steal_req);
+		SEND_REQ_WORKER(steal_from(&steal_req, last_victim), &steal_req);
 #elif defined STEAL_LASTTHIEF
-		SEND_REQ_WORKER(lastthief(&steal_req), &steal_req);
+		SEND_REQ_WORKER(steal_from(&steal_req, last_thief), &steal_req);
 #else
 		SEND_REQ_WORKER(next_victim(&steal_req), &steal_req);
 #endif
@@ -819,9 +798,9 @@ static inline void resend_steal_request(void)
 	shuffle_victims();
 	copy_victims();
 #ifdef STEAL_LASTVICTIM
-	SEND_REQ_WORKER(lastvictim(&last_steal_req), &last_steal_req);
+	SEND_REQ_WORKER(steal_from(&last_steal_req, last_victim), &last_steal_req);
 #elif defined STEAL_LASTTHIEF
-	SEND_REQ_WORKER(lastthief(&last_steal_req), &last_steal_req);
+	SEND_REQ_WORKER(steal_from(&last_steal_req, last_thief), &last_steal_req);
 #else
 	SEND_REQ_WORKER(next_victim(&last_steal_req), &last_steal_req);
 #endif
