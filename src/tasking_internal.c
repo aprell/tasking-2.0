@@ -36,6 +36,7 @@ static void *worker_entry_fn(void *args)
 	ID = *(int *)args;
 	set_current_task(NULL);
 	num_tasks_exec = 0;
+	tasking_finished = false;
 
 	RT_init();
 	tasking_internal_barrier();
@@ -52,8 +53,10 @@ static void *worker_entry_fn(void *args)
 
 int tasking_internal_init(int *argc UNUSED, char ***argv UNUSED)
 {
+	static int num_cpus;
+
 	char *envval;
-	int num_cpus, i;
+	int i;
 
 	envval = getenv("NUM_THREADS");
 	if (envval) {
@@ -63,7 +66,10 @@ int tasking_internal_init(int *argc UNUSED, char ***argv UNUSED)
 		num_workers = sysconf(_SC_NPROCESSORS_ONLN);
 	}
 
-	num_cpus = cpu_count();
+	// Call cpu_count() only once, before changing the affinity of thread 0!
+	// After set_thread_affinity(0), cpu_count() would return 1, and every
+	// thread would end up being pinned to processor 0.
+	num_cpus = (num_cpus == 0) ? cpu_count() : num_cpus;
 	printf("Number of CPUs: %d\n", num_cpus);
 
 	// Beware of false sharing!
@@ -113,6 +119,7 @@ int tasking_internal_init(int *argc UNUSED, char ***argv UNUSED)
 	current_task->sst = 0;
 
 	num_tasks_exec = 0;
+	tasking_finished = false;
 
 	return 0;
 }

@@ -42,6 +42,7 @@ static inline int cpu_count(void)
 {
 	cpu_set_t cpuset;
 
+	// Requires unrestricted affinity!
 	pthread_getaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
 
 	return CPU_COUNT(&cpuset);
