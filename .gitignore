@@ -41,6 +41,7 @@ src/uts-par*
 src/lu*
 src/loopsched
 src/futures_api
+src/task_example
 
 include/terra_async.h
 include/terra_tasking_mod
