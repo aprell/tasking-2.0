@@ -80,7 +80,7 @@ bool quicksort_seq(int left, int right)
 	// Move pivot to its final place
 	swap(A, left, last);
 
-	quicksort_seq(left, last);
+	quicksort_seq(left, last - 1);
 	quicksort_seq(last + 1, right);
 
 	return true;
@@ -119,7 +119,7 @@ bool quicksort(int left, int right)
 	// Move pivot to its final place
 	swap(A, left, last);
 
-	is_sorted = __ASYNC(quicksort, left, last);
+	is_sorted = __ASYNC(quicksort, left, last - 1);
 	quicksort(last + 1, right);
 
 	return __AWAIT(is_sorted, bool);
