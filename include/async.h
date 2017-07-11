@@ -115,6 +115,7 @@ void fname##_task_func(struct fname##_task_data *__d) \
 { \
 	Task *this = get_current_task(); \
 	assert(!is_root_task(this)); \
+	/* FIXME: Breaks strict-aliasing rules */\
 	assert((struct fname##_task_data *)this->data == __d); \
 	\
 	UNPACK(__d, args); \
@@ -186,6 +187,7 @@ void fname##_task_func(struct fname##_task_data *__d) \
 { \
 	Task *this = get_current_task(); \
 	assert(!is_root_task(this)); \
+	/* FIXME: Breaks strict-aliasing rules */\
 	assert((struct fname##_task_data *)this->data == __d); \
 	\
 	UNPACK(__d, args, __f); \
@@ -212,6 +214,7 @@ void fname##_task_func(struct fname##_task_data *__d) \
 { \
 	Task *this = get_current_task(); \
 	assert(!is_root_task(this)); \
+	/* FIXME: Breaks strict-aliasing rules */\
 	assert((struct fname##_task_data *)this->data == __d); \
 	\
 	UNPACK(__d, args, __f); \
@@ -234,6 +237,7 @@ void fname##_task_func(struct fname##_task_data *__d) \
 { \
 	Task *this = get_current_task(); \
 	assert(!is_root_task(this)); \
+	/* FIXME: Breaks strict-aliasing rules */\
 	assert((struct fname##_task_data *)this->data == __d); \
 	\
 	UNPACK(__d, args, __f); \
@@ -255,6 +259,7 @@ void fname##_task_func(struct fname##_task_data *__d) \
 { \
 	Task *this = get_current_task(); \
 	assert(!is_root_task(this)); \
+	/* FIXME: Breaks strict-aliasing rules */\
 	assert((struct fname##_task_data *)this->data == __d); \
 	\
 	UNPACK(__d, args, __f); \
@@ -274,6 +279,7 @@ void fname##_task_func(struct fname##_task_data *__d) \
 { \
 	Task *this = get_current_task(); \
 	assert(!is_root_task(this)); \
+	/* FIXME: Breaks strict-aliasing rules */\
 	assert((struct fname##_task_data *)this->data == __d); \
 	\
 	UNPACK(__d, args, __r, num_children); \
@@ -290,6 +296,7 @@ void fname##_task_func(struct fname##_task_data *__d) \
 { \
 	Task *this = get_current_task(); \
 	assert(!is_root_task(this)); \
+	/* FIXME: Breaks strict-aliasing rules */\
 	assert((struct fname##_task_data *)this->data == __d); \
 	\
 	UNPACK(__d, args, num_children); \
@@ -315,6 +322,7 @@ do { \
 	__task->parent = get_current_task(); \
 	__task->fn = (void (*)(void *))f##_task_func; \
 	\
+	/* FIXME: Breaks strict-aliasing rules */\
 	__d = (struct f##_task_data *)__task->data; \
 	PACK(__d, args); \
 	push(__task); \
@@ -333,6 +341,7 @@ do { \
 	__task->parent = get_current_task(); \
 	__task->fn = (void (*)(void *))f##_task_func; \
 	\
+	/* FIXME: Breaks strict-aliasing rules */\
 	__d = (struct f##_task_data *)__task->data; \
 	__f = new_future(f); \
 	PACK(__d, args, __f); \
@@ -352,6 +361,7 @@ do { \
 	__task->parent = get_current_task(); \
 	__task->fn = (void (*)(void *))f##_task_func; \
 	\
+	/* FIXME: Breaks strict-aliasing rules */\
 	__d = (struct f##_task_data *)__task->data; \
 	atomic_inc(&num_children); \
 	PACK(__d, args, &num_children); \
@@ -649,6 +659,7 @@ do { \
 	} \
 	__task->sst = 1; \
 	\
+	/* FIXME: Breaks strict-aliasing rules */\
 	__d = (struct f##_task_data *)__task->data; \
 	PACK(__d, env); \
 	push(__task); \

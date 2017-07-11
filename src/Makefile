@@ -1,4 +1,4 @@
-include ../common-icc.mk
+include ../common-gcc.mk
 
 CPPFLAGS += -DPLATFORM_SHM -DCHAN_SHM -DNTIME
 CPPFLAGS += -DMANAGER_ID=1
