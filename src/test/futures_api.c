@@ -14,6 +14,46 @@ FUTURE_DECL_FREELIST(int);
 FUTURE_DECL(int, sum, int a; int b, a, b);
 TUPLE_DECL(int);
 
+#define concat_(x, y) x##y
+#define concat(x, y) concat_(x, y)
+
+struct future_ {
+	future f;
+	void *ret;
+	void (*await)(struct future_ *);
+};
+
+// Must be generated
+static void await_sum(struct future_ *this)
+{
+	AWAIT(this->f, (int *)this->ret);
+}
+
+struct node {
+	struct future_ f;
+	struct node *next;
+};
+
+static inline void await_tasks(struct node *hd)
+{
+	struct node *n;
+	for (n = hd; n != NULL; n = n->next) {
+		n->f.await(&n->f);
+	}
+}
+
+#define ASYNC_(fun, ...) fun, __VA_ARGS__
+
+#define SCOPED(async, addr) SCOPED_ASYNC(addr, async)
+
+#define SCOPED_ASYNC(ret, fun, ...) \
+	struct node *concat(hd_, __LINE__) = alloca(sizeof(struct node)); \
+	*concat(hd_, __LINE__) = (struct node){ (struct future_){ __ASYNC(fun, __VA_ARGS__), ret, await_##fun }, hd }; \
+	hd = concat(hd_, __LINE__)
+
+#define SCOPED_AWAIT \
+	for (struct node *hd = NULL; hd == NULL || (await_tasks(hd), 0);)
+
 int main(int argc, char *argv[])
 {
 	TASKING_INIT(&argc, &argv);
@@ -55,6 +95,20 @@ int main(int argc, char *argv[])
 	assert(sums._0 ==  9);
 	assert(sums._1 == 13);
 	assert(sums._2 == 17);
+
+	//========================================================================
+
+	int x, y, z;
+
+	SCOPED_AWAIT {
+		SCOPED(ASYNC_(sum, 0, 1), &x);
+		SCOPED(ASYNC_(sum, 1, 2), &y);
+		SCOPED(ASYNC_(sum, 2, 3), &z);
+	}
+
+	assert(x == 1);
+	assert(y == 3);
+	assert(z == 5);
 
 	//========================================================================
 
