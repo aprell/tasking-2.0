@@ -681,4 +681,45 @@ do { \
 	assert(this->start == this->cur); \
 	for (i = this->start, this->cur++; i < this->end; i++, this->cur++)
 
+/* A shorter way to declare that a function can be called asynchronously
+ *
+ * Example:
+ * DEFINE_FUTURE(int, sum, $(int, int));
+ * is equivalent to the more verbose
+ * FUTURE_DECL(int, sum, int t0; int t1, t0, t1);
+ */
+
+#define $_IMPL2(n, ...) $ ## n(__VA_ARGS__)
+#define $_IMPL(n, ...) $_IMPL2(n, __VA_ARGS__)
+#define $(...) $_IMPL(VA_NARGS(__VA_ARGS__), __VA_ARGS__)
+
+#define $1(ty1) \
+	ty1 t##0, \
+	t##0
+
+#define $2(ty1, ty2) \
+	ty1 t##0; ty2 t##1, \
+	t##0, t##1
+
+#define $3(ty1, ty2, ty3) \
+	ty1 t##0; ty2 t##1; ty3 t##2, \
+	t##0, t##1, t##2
+
+#define $4(ty1, ty2, ty3, ty4) \
+	ty1 t##0; ty2 t##1; ty3 t##2; ty4 t##3, \
+	t##0, t##1, t##2, t##3
+
+#define $5(ty1, ty2, ty3, ty4, ty5) \
+	ty1 t##0; ty2 t##1; ty3 t##2; ty4 t##3; ty5 t##4, \
+	t##0, t##1, t##2, t##3, t##4
+
+/* ... */
+
+#define ARGUMENT_TYPE(a) $1(a)
+#define ARGUMENT_TYPES(a, ...) $(a, __VA_ARGS__)
+
+// Extra level of macro expansion needed
+#define DEFINE_ASYNC(...) ASYNC_DECL(__VA_ARGS__)
+#define DEFINE_FUTURE(...) FUTURE_DECL(__VA_ARGS__)
+
 #endif // ASYNC_H

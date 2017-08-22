@@ -11,7 +11,7 @@ int sum(int a, int b)
 }
 
 FUTURE_DECL_FREELIST(int);
-FUTURE_DECL(int, sum, int a; int b, a, b);
+DEFINE_FUTURE(int, sum, $(int, int));
 TUPLE_DECL(int);
 
 #define concat_(x, y) x##y
