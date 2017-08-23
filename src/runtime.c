@@ -57,6 +57,20 @@ static struct task_indicator task_indicators[MAXNP];
 
 #endif // VICTIM_CHECK
 
+// Steal requests carry one of the following states:
+// - STATE_WORKING means the requesting worker is still busy
+// - STATE_IDLE means the requesting worker has run out of tasks
+// - STATE_REG_IDLE means the requesting worker is known to be idle
+// - STATE_UPDATE means the requesting worker is no longer idle because it
+//   received new tasks
+
+typedef unsigned char state_t;
+
+#define STATE_WORKING  0x00
+#define STATE_IDLE     0x02
+#define STATE_REG_IDLE 0x04
+#define STATE_UPDATE   0x08
+
 struct steal_request {
 	Channel *chan;  // channel for sending tasks
 	int ID;			// ID of requesting worker
@@ -66,34 +80,27 @@ struct steal_request {
 #ifdef STEAL_BACKOFF
 	int rounds;		// worker backs off after n rounds of failed stealing
 #endif
-	bool idle;		// ID has nothing left to work on?
-	bool quiescent;	// manager assumes ID is in a quiescent state?
-	bool is_update; // forwarded steal request that informs the manager that
-	                // the requesting worker is no longer idle?
+	state_t state;  // state of steal request and, by extension, requesting worker
 #ifdef STEAL_ADAPTIVE
 	bool stealhalf; // true ? attempt steal-half : attempt steal-one
 #endif
 #if defined STEAL_BACKOFF && defined STEAL_ADAPTIVE
-	char __[0];	    // pad to cache line
+	char __[2];	    // pad to cache line
 #elif defined STEAL_BACKOFF
-	char __[1];     // pad to cache line
+	char __[3];     // pad to cache line
 #elif defined STEAL_ADAPTIVE
-	char __[4];     // pad to cache line
+	char __[6];     // pad to cache line
 #else
-	char __[5];     // pad to cache line
+	char __[7];     // pad to cache line
 #endif
 };
 
 static inline void print_steal_req(struct steal_request *req)
 {
-	LOG("{ .ID = %d, .try = %d, .partition = %d, .pID = %d, "
-		".idle = %s, .quiescent = %s, .is_update = %s }\n",
-		req->ID, req->try, req->partition, req->pID,
-		req->idle == true ? "Y" : "N", req->quiescent == true ? "Y" : "N",
-		req->is_update == true ? "Y" : "N");
+	LOG("{ .ID = %d, .try = %d, .partition = %d, .pID = %d, .state = %d, .stealhalf = %s }\n",
+		req->ID, req->try, req->partition, req->pID, req->state, req->stealhalf ? "true" : "false");
 }
 
-// .try == 0, .idle == false, .quiescence == false
 static PRIVATE struct steal_request steal_req;
 
 #ifdef STEAL_BACKOFF
@@ -198,6 +205,7 @@ static void shuffle(int *workers, int len)
 		swap(&workers[rand], &workers[i]);
 	}
 }
+
 static inline void shuffle_victims()
 {
 	shuffle(my_victims, my_partition->num_workers_rt-1);
@@ -326,8 +334,7 @@ int RT_init(void)
 #ifdef STEAL_BACKOFF
 		.rounds = 0,
 #endif
-		.idle = false,
-		.quiescent = false
+		.state = STATE_WORKING
 #ifdef STEAL_ADAPTIVE
 		, .stealhalf = false
 #endif
@@ -486,9 +493,9 @@ static inline void decline_steal_request(struct steal_request *);
 static inline void decline_all_steal_requests(void);
 static inline void split_loop(Task *, struct steal_request *);
 
-static inline bool register_idle(struct steal_request *);
-static inline bool unregister_idle(struct steal_request *);
-static inline bool detect_termination(void);
+static inline void register_idle(struct steal_request *);
+static inline void unregister_idle(struct steal_request *);
+static inline void detect_termination(void);
 
 #define SEND_REQ(chan, req) \
 do { \
@@ -515,13 +522,18 @@ static inline bool RECV_REQ(struct steal_request *req)
 		ret = channel_receive(chan_requests[ID], req, sizeof(*(req)));
 #ifndef DISABLE_MANAGER
 		MANAGER {
-			// Handle update messages
-			while (ret && unregister_idle(req)) {
+			// Deal with updates
+			while (ret && req->state == STATE_UPDATE) {
+				unregister_idle(req);
 				ret = channel_receive(chan_requests[ID], req, sizeof(*(req)));
 			}
-			// Are all workers idle?
-			ret && register_idle(req) && detect_termination();
-			assert((ret && !req->is_update) || !ret);
+			// Check if worker is idle and if termination occurred
+			if (ret && req->state == STATE_IDLE) {
+				register_idle(req);
+				detect_termination();
+			}
+			// No special treatment for other states
+			assert((ret && req->state != STATE_UPDATE) || !ret);
 		}
 #endif
 	} // PROFILE
@@ -546,13 +558,13 @@ static inline bool RECV_TASK(Task **task)
 
 #define NOTIFY_MANAGER(req) \
 do { \
-	assert((req)->idle); \
+	assert((req)->state == STATE_IDLE); \
 	atomic_dec(td_count); \
 } while (0)
 
 #define CHECK_NOTIFY_MANAGER(req) \
 do { \
-	if ((req)->idle) { \
+	if ((req)->state == STATE_IDLE) { \
 		NOTIFY_MANAGER(req); \
 	} \
 } while (0)
@@ -561,9 +573,8 @@ do { \
 
 #define NOTIFY_MANAGER(req) \
 do { \
-	assert((req)->quiescent && (req)->idle); \
-	(req)->quiescent = false; \
-	(req)->is_update = true; \
+	assert((req)->state == STATE_REG_IDLE); \
+	(req)->state = STATE_UPDATE; \
 	MANAGER { \
 		/* Elide message */ \
 		unregister_idle(req); \
@@ -574,7 +585,7 @@ do { \
 
 #define CHECK_NOTIFY_MANAGER(req) \
 do { \
-	if ((req)->quiescent) { \
+	if ((req)->state == STATE_REG_IDLE) { \
 		NOTIFY_MANAGER(req); \
 	} \
 } while (0)
@@ -606,34 +617,30 @@ static PRIVATE bool stealhalf;
 PRIVATE unsigned int requests_steal_one, requests_steal_half;
 #endif
 
-static inline bool register_idle(struct steal_request *req)
+static inline void register_idle(struct steal_request *req)
 {
-	if (req->idle && !req->quiescent && !workers_q[req->pID]) {
-		workers_q[req->pID] = 1;
-		req->quiescent = true;
-		num_workers_q++;
-		notes++;
-		return true;
-	}
+	assert(req->state == STATE_IDLE);
+	req->state = STATE_REG_IDLE;
 
-	return false;
+	assert(workers_q[req->pID] == 0);
+	workers_q[req->pID] = 1;
+	num_workers_q++;
+	notes++;
 }
 
-static inline bool unregister_idle(struct steal_request *req)
+static inline void unregister_idle(struct steal_request *req)
 {
-	if (req->idle && !req->quiescent && workers_q[req->pID]) {
-		assert(req->is_update);
-		workers_q[req->pID] = 0;
-		num_workers_q--;
-		quiescent = false;
-		if (after_barrier) {
-			after_barrier = false;
-		}
-		notes++;
-		return true;
-	}
+	assert(req->state == STATE_UPDATE);
+	req->state = STATE_WORKING;
 
-	return false;
+	assert(workers_q[req->pID] == 1);
+	workers_q[req->pID] = 0;
+	num_workers_q--;
+	quiescent = false;
+	if (after_barrier) {
+		after_barrier = false;
+	}
+	notes++;
 }
 
 // Asynchronous call of function fn on worker ID
@@ -667,7 +674,7 @@ static ASYNC_ACTION(confirm_termination)
 	num_tasks_exec--;
 }
 
-static inline bool detect_termination(void)
+static inline void detect_termination(void)
 {
 	if (num_workers_q == my_partition->num_workers_rt && !quiescent) {
 		//LOG("Termination detected\n");
@@ -680,10 +687,7 @@ static inline bool detect_termination(void)
 #endif
 		//LOG("Termination confirmed\n");
 		after_barrier = true;
-		return true;
 	}
-
-	return false;
 }
 
 // Notify each other when it's time to shut down
@@ -741,7 +745,7 @@ static inline void send_steal_request(bool idle)
 	PROFILE(SEND_RECV_REQ) {
 
 	if (!requested) {
-		steal_req.idle = idle;
+		steal_req.state = idle ? STATE_IDLE : STATE_WORKING;
 		steal_req.try = 0;
 #ifdef STEAL_ADAPTIVE
 		steal_req.stealhalf = stealhalf;
@@ -788,9 +792,8 @@ static inline void resend_steal_request(void)
 
 	assert(requested);
 	assert(steal_backoff_waiting);
-	assert(last_steal_req.idle);
 #ifndef DISABLE_MANAGER
-	assert(last_steal_req.quiescent);
+	assert(last_steal_req.state == STATE_REG_IDLE);
 #endif
 	last_steal_req.try = 0;
 	last_steal_req.rounds = 0;
@@ -838,7 +841,7 @@ static inline void decline_steal_request(struct steal_request *req)
 		SEND_REQ_WORKER(next_victim(req), req);
 	} else {
 #ifdef STEAL_BACKOFF
-		if (req->idle && ++req->rounds == STEAL_BACKOFF_ROUNDS) {
+		if (req->state == STATE_IDLE && ++req->rounds == STEAL_BACKOFF_ROUNDS) {
 			last_steal_req = *req;
 #ifdef STEAL_ADAPTIVE
 			stealhalf = false;
@@ -897,7 +900,7 @@ static inline void decline_steal_request(struct steal_request *req)
 		SEND_REQ_WORKER(next_victim(req), req);
 	} else {
 #ifdef STEAL_BACKOFF
-		if (ID != MASTER_ID && req->quiescent && ++req->rounds == STEAL_BACKOFF_ROUNDS) {
+		if (ID != MASTER_ID && req->state == STATE_REG_IDLE && ++req->rounds == STEAL_BACKOFF_ROUNDS) {
 			last_steal_req = *req;
 #ifdef STEAL_ADAPTIVE
 			stealhalf = false;
@@ -908,9 +911,9 @@ static inline void decline_steal_request(struct steal_request *req)
 			steal_backoff_intvl_start = Wtime_usec();
 			steal_backoff_waiting = true;
 			steal_backoffs++;
-		} else if (ID != MASTER_ID && req->quiescent) {
+		} else if (ID != MASTER_ID && req->state == STATE_REG_IDLE) {
 #else
-		if (ID != MASTER_ID && req->quiescent) {
+		if (ID != MASTER_ID && req->state == STATE_REG_IDLE) {
 #endif
 			// Don't bother manager; we are quiescent anyway
 			req->try = 0;
@@ -936,8 +939,8 @@ static inline void decline_all_steal_requests(void)
 	PROFILE_STOP(IDLE);
 
 	if (RECV_REQ(&req)) {
-		if (req.ID == ID && !req.idle) {
-			req.idle = true;
+		if (req.ID == ID && req.state == STATE_WORKING) {
+			req.state = STATE_IDLE;
 #ifdef DISABLE_MANAGER
 			atomic_inc(td_count);
 #endif
@@ -963,7 +966,7 @@ static void handle_steal_request(struct steal_request *req)
 #ifdef OPTIMIZE_BARRIER
 			CHECK_NOTIFY_MANAGER(req);
 #else
-			assert(!req->quiescent);
+			assert(req->state != STATE_REG_IDLE);
 #endif
 			assert(requested);
 			requested = false;
@@ -971,7 +974,7 @@ static void handle_steal_request(struct steal_request *req)
 		} else {
 #ifdef VICTIM_CHECK
 			// Avoid sending the steal request back to ourselves
-			assert(!req->quiescent);
+			assert(req->state != STATE_REG_IDLE);
 			assert(requested);
 			requested = false;
 #else
@@ -1147,9 +1150,9 @@ static ASYNC_ACTION(run_dummy_task)
 {
 	assert(!requested);
 #if MANAGER_ID == MASTER_ID
-	steal_req.idle = false;
+	steal_req.state = STATE_WORKING;
 #else
-	steal_req.idle = true;
+	steal_req.state = STATE_IDLE;
 #endif
 	steal_req.try = MAX_STEAL_ATTEMPTS;
 #ifdef STEAL_ADAPTIVE
