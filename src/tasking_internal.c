@@ -149,6 +149,9 @@ extern PRIVATE unsigned int requests_resent;
 #ifdef STEAL_ADAPTIVE
 extern PRIVATE unsigned int requests_steal_one, requests_steal_half;
 #endif
+#ifdef LAZY_FUTURES
+extern PRIVATE unsigned int futures_converted;
+#endif
 
 int tasking_internal_statistics(void)
 {
@@ -178,6 +181,9 @@ int tasking_internal_statistics(void)
 	printf("Worker %d: %.2f %% steal-half\n", ID, requests_sent > 0
 			? ((double)requests_steal_half/requests_sent) * 100
 			: 0);
+#endif
+#ifdef LAZY_FUTURES
+	printf("Worker %d: %u futures converted\n", ID, futures_converted);
 #endif
 
 	PROFILE_RESULTS();

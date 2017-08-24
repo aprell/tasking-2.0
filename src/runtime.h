@@ -4,6 +4,9 @@
 #include "tasking_internal.h"
 #include "channel.h"
 #include "overload_RT_force_future_channel.h"
+#ifdef LAZY_FUTURES
+#include "async.h"
+#endif
 
 typedef struct partition {
 	int number;			// index of partition: 0 <= number < num_partitions
@@ -146,6 +149,9 @@ int RT_barrier(void);
 void RT_force_future(Channel *chan, void *data, unsigned int size);
 void RT_force_future_channel(Channel *chan, void *data, unsigned int size);
 void RT_force_future_channel(Channel *chan);
+#ifdef LAZY_FUTURES
+void RT_force_lazy_future(lazy_future *f, void *data, unsigned int size);
+#endif
 void RT_taskwait(atomic_t *num_children);
 
 // These functions implement the load balancing between workers

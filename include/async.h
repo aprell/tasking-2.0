@@ -721,5 +721,96 @@ do { \
 // Extra level of macro expansion needed
 #define DEFINE_ASYNC(...) ASYNC_DECL(__VA_ARGS__)
 #define DEFINE_FUTURE(...) FUTURE_DECL(__VA_ARGS__)
+#ifdef LAZY_FUTURES
+#define DEFINE_LAZY_FUTURE(...) LAZY_FUTURE_DECL(__VA_ARGS__)
+#endif
+
+#ifdef LAZY_FUTURES
+typedef struct {
+	union {
+		Channel *chan;               // <--+
+		char buf[sizeof(Channel *)]; //    | <--+
+	};                               //    |    |
+	bool has_channel;                // ---+    |
+	bool set;                        // --------+
+} lazy_future;
+
+#define LAZY_FUTURE_DECL(ret, fname, decls, args...) \
+struct fname##_task_data { \
+	/* Store as first field to be able to retrieve it easily */ \
+	lazy_future *__f; \
+	decls; \
+}; \
+void fname##_task_func(struct fname##_task_data *__d) \
+{ \
+	Task *this = get_current_task(); \
+	assert(!is_root_task(this)); \
+	/* FIXME: Breaks strict-aliasing rules */\
+	assert((struct fname##_task_data *)this->data == __d); \
+	\
+	UNPACK(__d, __f, args); \
+	ret __tmp = fname(args); \
+	if (!__f->has_channel) { \
+		*(ret *)__f->buf = __tmp; \
+		__f->set = true; \
+	} else { \
+		assert(__f->chan != NULL); \
+		channel_send(__f->chan, &__tmp, sizeof(__tmp)); \
+	} \
+}
+#define LAZY_VOID_FUTURE_DECL(fname, decls, args...) \
+struct fname##_task_data { \
+	/* Store as first field to be able to retrieve it easily */ \
+	lazy_future *__f; \
+	decls; \
+}; \
+void fname##_task_func(struct fname##_task_data *__d) \
+{ \
+	Task *this = get_current_task(); \
+	assert(!is_root_task(this)); \
+	/* FIXME: Breaks strict-aliasing rules */\
+	assert((struct fname##_task_data *)this->data == __d); \
+	\
+	UNPACK(__d, __f, args); \
+	fname(args); \
+	if (!__f->has_channel) { \
+		__f->set = true; \
+	} else { \
+		assert(__f->chan != NULL); \
+		channel_close(__f->chan); \
+	} \
+}
+
+#define __LAZY_ASYNC(f, args...) \
+({  \
+	Task *__task; \
+	struct f##_task_data *__d; \
+    /* Allocated in the stack frame of the caller */ \
+	lazy_future *__f = alloca(sizeof(lazy_future)); \
+	__f->chan = NULL; \
+	__f->has_channel = false; \
+	__f->set = false; \
+	PROFILE(ENQ_DEQ_TASK) { \
+	\
+	__task = task_alloc(); \
+	__task->parent = get_current_task(); \
+	__task->fn = (void (*)(void *))f##_task_func; \
+	__task->has_future = true; \
+	\
+	/* FIXME: Breaks strict-aliasing rules */\
+	__d = (struct f##_task_data *)__task->data; \
+	PACK(__d, __f, args); \
+	push(__task); \
+	} /* PROFILE */ \
+	__f; \
+})
+
+#define __LAZY_AWAIT(f, type) \
+({ \
+	type __tmp; \
+	RT_force_lazy_future(f, &__tmp, sizeof(__tmp)); \
+	__tmp; \
+})
+#endif // LAZY_FUTURES
 
 #endif // ASYNC_H

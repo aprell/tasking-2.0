@@ -238,6 +238,9 @@ PROFILE_DECL(IDLE);
 PRIVATE unsigned int requests_sent, requests_handled;
 PRIVATE unsigned int requests_declined, tasks_sent;
 PRIVATE unsigned int tasks_split;
+#ifdef LAZY_FUTURES
+PRIVATE unsigned int futures_converted;
+#endif
 
 int RT_init(void)
 {
@@ -888,6 +891,17 @@ static void handle_steal_request(struct steal_request *req)
 #ifdef STEAL_LASTVICTIM
 		task->victim = ID;
 #endif
+#ifdef LAZY_FUTURES
+		if (task->has_future) {
+			// Lazy allocation
+			lazy_future *f = *(lazy_future **)task->data;
+			assert(!f->has_channel);
+			assert(sizeof(f->buf) == 8);
+			f->chan = channel_alloc(sizeof(f->buf), 0, SPSC);
+			f->has_channel = true;
+			futures_converted++;
+		}
+#endif
 		channel_send(req->chan, (void *)&task, sizeof(Task *));
 		//LOG("Worker %2d: sending %d tasks to worker %d\n", ID, loot, req->ID);
 		requests_handled++;
@@ -1307,6 +1321,91 @@ RT_force_future_channel_return:
 // __RT_force_future_channel_impl__3 is the mangled symbol name
 void __attribute__((alias("__RT_force_future_channel_impl__3")))
 RT_force_future(Channel *chan, void *data, unsigned int size);
+
+#ifdef LAZY_FUTURES
+void RT_force_lazy_future(lazy_future *f, void *data, unsigned int size)
+{
+	Task *task;
+	Task *this = get_current_task();
+	struct steal_request req;
+	int loot;
+
+#define READY ((f->has_channel && channel_receive(f->chan, data, size)) || f->set)
+
+	if (READY)
+		goto RT_force_lazy_future_return;
+
+	while ((task = pop_child()) != NULL) {
+		PROFILE(RUN_TASK) run_task(task);
+		PROFILE(ENQ_DEQ_TASK) deque_list_tl_task_cache(deque, task);
+		if (READY)
+			goto RT_force_lazy_future_return;
+	}
+
+	assert(get_current_task() == this);
+
+	while (!READY) {
+		send_steal_request(false);
+		PROFILE(IDLE) {
+
+		while (!RECV_TASK(&task)) {
+			// We might inadvertently remove our own steal request in
+			// handle_steal_request, so:
+			PROFILE_STOP(IDLE);
+			if (!requested) {
+				send_steal_request(false);
+			}
+			// Check if someone requested to steal from us
+			while (RECV_REQ(&req))
+				handle_steal_request(&req);
+			PROFILE_START(IDLE);
+			if (READY) {
+				PROFILE_STOP(IDLE);
+				goto RT_force_lazy_future_return;
+			}
+		}
+
+		} // PROFILE
+		loot = task->batch;
+#ifdef STEAL_LASTVICTIM
+		if (task->victim != -1) {
+			last_victim = task->victim;
+			assert(last_victim != ID);
+		}
+#endif
+		if (loot > 1) {
+			PROFILE(ENQ_DEQ_TASK) task = deque_list_tl_pop(deque_list_tl_prepend(deque, task, loot));
+			HAVE_TASKS();
+		}
+#ifdef VICTIM_CHECK
+		if (loot == 1 && SPLITTABLE(task)) {
+			HAVE_TASKS();
+		}
+#endif
+		requested = false;
+		//TODO Figure out at which points updates are reasonable
+		//UPDATE();
+#ifdef STEAL_ADAPTIVE
+		num_steals_exec_recently++;
+#endif
+		PROFILE(RUN_TASK) run_task(task);
+		PROFILE(ENQ_DEQ_TASK) deque_list_tl_task_cache(deque, task);
+	}
+
+#undef READY
+
+RT_force_lazy_future_return:
+	if (!f->has_channel) {
+		assert(f->set);
+		memcpy(data, f->buf, size);
+	} else {
+		assert(f->chan != NULL);
+		assert(channel_impl(f->chan) == SPSC);
+		channel_free(f->chan);
+	}
+	return;
+}
+#endif // LAZY_FUTURES
 
 // Return when *num_children == 0
 void RT_taskwait(atomic_t *num_children)
