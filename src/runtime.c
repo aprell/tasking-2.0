@@ -188,7 +188,6 @@ static void init_victims(int ID)
 
 static PRIVATE unsigned int seed;
 
-#ifdef STEAL_RANDOM
 static void swap(int *a, int *b)
 {
 	int tmp = *a;
@@ -211,7 +210,6 @@ static inline void shuffle_victims()
 	shuffle(my_victims, my_partition->num_workers_rt-1);
 	my_victims[my_partition->num_workers_rt-1] = ID;
 }
-#endif // STEAL_RANDOM
 
 static inline void copy_victims()
 {
@@ -224,9 +222,7 @@ static int ws_init(void)
 {
 	seed = ID;
 	init_victims(ID);
-#ifdef STEAL_RANDOM
 	shuffle_victims();
-#endif
 	copy_victims();
 
 	return 0;
@@ -352,7 +348,6 @@ Task *task_alloc(void)
 #define MAX_STEAL_ATTEMPTS (my_partition->num_workers_rt-1)
 #endif
 
-#ifdef STEAL_RANDOM
 static inline int next_victim(struct steal_request *req)
 {
 	int victim, i;
@@ -372,12 +367,8 @@ static inline int next_victim(struct steal_request *req)
 
 	return req->ID;
 }
-#endif // STEAL_RANDOM
 
 #if defined STEAL_LASTVICTIM || defined STEAL_LASTTHIEF
-#ifndef STEAL_RANDOM
-#error "STEAL_LASTVICTIM and STEAL_LASTTHIEF depend on STEAL_RANDOM"
-#endif
 static inline int steal_from(struct steal_request *req, int worker)
 {
 	int victim;
@@ -658,7 +649,6 @@ static inline void send_steal_request(bool idle)
 #ifdef STEAL_ADAPTIVE
 		steal_req.stealhalf = stealhalf;
 #endif
-#ifdef STEAL_RANDOM
 		shuffle_victims();
 		copy_victims();
 #ifdef STEAL_LASTVICTIM
@@ -667,7 +657,6 @@ static inline void send_steal_request(bool idle)
 		SEND_REQ_WORKER(steal_from(&steal_req, last_thief), &steal_req);
 #else
 		SEND_REQ_WORKER(next_victim(&steal_req), &steal_req);
-#endif
 #endif
 		requested = true;
 		requests_sent++;
@@ -703,7 +692,6 @@ static inline void resend_steal_request(void)
 #endif
 	last_steal_req.try = 0;
 	last_steal_req.rounds = 0;
-#ifdef STEAL_RANDOM
 	shuffle_victims();
 	copy_victims();
 #ifdef STEAL_LASTVICTIM
@@ -712,7 +700,6 @@ static inline void resend_steal_request(void)
 	SEND_REQ_WORKER(steal_from(&last_steal_req, last_thief), &last_steal_req);
 #else
 	SEND_REQ_WORKER(next_victim(&last_steal_req), &last_steal_req);
-#endif
 #endif
 	steal_backoff_waiting = false;
 	steal_backoff_usec *= STEAL_BACKOFF_MULTIPLIER;
@@ -758,15 +745,11 @@ static inline void decline_steal_request(struct steal_request *req)
 			steal_backoffs++;
 		} else {
 			req->try = 0;
-#ifdef STEAL_RANDOM
 			SEND_REQ_WORKER(next_victim(req), req);
-#endif
 		}
 #else
 		req->try = 0;
-#ifdef STEAL_RANDOM
 		SEND_REQ_WORKER(next_victim(req), req);
-#endif
 #endif
 	}
 
@@ -817,9 +800,7 @@ static inline void decline_steal_request(struct steal_request *req)
 #endif
 			// Don't bother manager; we are quiescent anyway
 			req->try = 0;
-#ifdef STEAL_RANDOM
 			SEND_REQ_WORKER(next_victim(req), req);
-#endif
 		} else {
 			SEND_REQ_MANAGER(req);
 		}
