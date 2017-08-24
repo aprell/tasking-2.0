@@ -219,44 +219,6 @@ static inline void copy_victims()
 	memcpy(victims[ID], my_victims, my_partition->num_workers_rt * sizeof(int));
 }
 
-#ifdef STEAL_RANDOM_RR
-// Arrange the victims in my_victims so that visiting them in order
-// corresponds to round robin / next neighbor
-static inline void order_victims()
-{
-	int vs[my_partition->num_workers_rt];
-	int i = 0, j = my_partition->num_workers_rt-1;
-
-	while (my_victims[i] < ID) {
-		i++; j--;
-	}
-
-	assert(my_victims[i] >= ID);
-	assert(j >= 0);
-
-	if (my_victims[i] == 0 || my_victims[i] == ID) {
-		// my_victims is already correctly ordered
-		if (my_victims[i] == ID) {
-			assert(i == my_partition->num_workers_rt-1);
-			assert(j == 0);
-		}
-		return;
-	}
-
-	assert(my_victims[i] > ID);
-	assert(j > 0);
-
-	// Save the first i victims that must be moved to the end of my_victims
-	memcpy(vs, my_victims, i * sizeof(int));
-	// Move the remaining j victims to the front of my_victims
-	memmove(my_victims, my_victims + i, j * sizeof(int));
-	// Copy the other victims back into place
-	memcpy(my_victims + j, vs, i * sizeof(int));
-
-	assert(my_victims[my_partition->num_workers_rt-1] == ID);
-}
-#endif // STEAL_RANDOM_RR
-
 // Initializes context needed for work-stealing
 static int ws_init(void)
 {
@@ -264,10 +226,7 @@ static int ws_init(void)
 	init_victims(ID);
 #ifdef STEAL_RANDOM
 	shuffle_victims();
-#else // STEAL_RANDOM_RR
-	order_victims();
 #endif
-	// Not strictly needed in case of STEAL_RANDOM_RR: no shared state
 	copy_victims();
 
 	return 0;
@@ -414,57 +373,6 @@ static inline int next_victim(struct steal_request *req)
 	return req->ID;
 }
 #endif // STEAL_RANDOM
-
-#ifdef STEAL_RANDOM_RR
-// Chooses the first victim at random
-static inline int random_victim(struct steal_request *req)
-{
-	// Assumption: Beginning of a new round of steal attempts
-	assert(req->try == 0);
-
-	int victim = -1;
-
-	do {
-		int rand = rand_r(&seed) % (my_partition->num_workers_rt-1);
-		victim = my_victims[rand];
-		assert(victim != ID);
-	} while (victim == req->ID);
-
-	//assert(is_in_my_partition(victim));
-
-	return victim;
-}
-
-static inline int next_victim(struct steal_request *req)
-{
-	int victim, i;
-
-	assert(req->try > 0 && req->try <= my_partition->num_workers_rt-1);
-
-	if (req->try == my_partition->num_workers_rt-1) {
-		return req->ID;
-	}
-
-	// Check all potential victims (excluding ID)
-	for (i = 0; i < my_partition->num_workers_rt-1,
-			    req->try < my_partition->num_workers_rt-1; i++) {
-		victim = my_victims[i];
-		if (victim != req->ID) {
-			if (LIKELY_HAS_TASKS(victim)) {
-				return victim;
-			} else {
-				req->try++;
-			}
-		} else {
-			assert(victim == req->ID);
-		}
-	}
-
-	// Steal request has passed each worker exactly once; send it back
-	assert(req->try == my_partition->num_workers_rt-1);
-	return req->ID;
-}
-#endif // STEAL_RANDOM_RR
 
 #if defined STEAL_LASTVICTIM || defined STEAL_LASTTHIEF
 #ifndef STEAL_RANDOM
@@ -760,8 +668,6 @@ static inline void send_steal_request(bool idle)
 #else
 		SEND_REQ_WORKER(next_victim(&steal_req), &steal_req);
 #endif
-#else // STEAL_RANDOM_RR
-		SEND_REQ_WORKER(random_victim(&steal_req), &steal_req);
 #endif
 		requested = true;
 		requests_sent++;
@@ -807,8 +713,6 @@ static inline void resend_steal_request(void)
 #else
 	SEND_REQ_WORKER(next_victim(&last_steal_req), &last_steal_req);
 #endif
-#else // STEAL_RANDOM_RR
-	SEND_REQ_WORKER(random_victim(&last_steal_req), &last_steal_req);
 #endif
 	steal_backoff_waiting = false;
 	steal_backoff_usec *= STEAL_BACKOFF_MULTIPLIER;
@@ -856,16 +760,12 @@ static inline void decline_steal_request(struct steal_request *req)
 			req->try = 0;
 #ifdef STEAL_RANDOM
 			SEND_REQ_WORKER(next_victim(req), req);
-#else // STEAL_RANDOM_RR
-			SEND_REQ_WORKER(random_victim(req), req);
 #endif
 		}
 #else
 		req->try = 0;
 #ifdef STEAL_RANDOM
 		SEND_REQ_WORKER(next_victim(req), req);
-#else // STEAL_RANDOM_RR
-		SEND_REQ_WORKER(random_victim(req), req);
 #endif
 #endif
 	}
@@ -919,8 +819,6 @@ static inline void decline_steal_request(struct steal_request *req)
 			req->try = 0;
 #ifdef STEAL_RANDOM
 			SEND_REQ_WORKER(next_victim(req), req);
-#else // STEAL_RANDOM_RR
-			SEND_REQ_WORKER(random_victim(req), req);
 #endif
 		} else {
 			SEND_REQ_MANAGER(req);
