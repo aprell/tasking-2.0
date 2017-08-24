@@ -23,11 +23,13 @@ struct task {
 		struct task *next;
 	};
 	void (*fn)(void *);
-	int batch;
-	int victim;
+	int batch, victim;
+	long start;
+	long cur;
+	long end;
+	long chunks;
+	long sst;
 	bool is_loop;
-	long start, cur, end;
-	long chunks, sst;
 	// Task body carrying user data
 	char data[TASK_DATA_SIZE];
 };
