@@ -37,4 +37,17 @@ static inline unsigned long long readtsc(void)
  	return (unsigned long long)hi << 32 | lo;
 }
 
+#define WTIME_unique_var_name_paste(id, n) id ## n
+#define WTIME_unique_var_name(id, n) WTIME_unique_var_name_paste(id, n)
+#define WTIME_unique_var(id) WTIME_unique_var_name(id, __LINE__)
+
+// Convenience macro for time measurement
+#define WTIME(unit) \
+	double WTIME_unique_var(_start_##unit##_) = Wtime_##unit##ec(); \
+	int WTIME_unique_var(_i_) = 0; \
+	for (; WTIME_unique_var(_i_) == 0 || \
+		 (printf("Elapsed wall time: %.2lf "#unit"\n", \
+			     Wtime_##unit##ec() - WTIME_unique_var(_start_##unit##_)), 0); \
+		 WTIME_unique_var(_i_)++)
+
 #endif // WTIME_H
