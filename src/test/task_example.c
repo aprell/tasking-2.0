@@ -3,22 +3,18 @@
 #include "tasking.h"
 #include "async.h"
 
-// ASYNC_DECL and FUTURE_DECL expand into data structures and wrapper functions
-// for implementing tasks and futures
+// DEFINE_ASYNC and DEFINE_FUTURE expand into data structures and wrapper
+// functions for implementing tasks and futures
 
-ASYNC_DECL (
-	// Ignore return value of puts
-	puts, const char *s, s
-);
+// Ignore return value of puts
+DEFINE_ASYNC(puts, (const char *));
 
 int sum(int a, int b)
 {
 	return a + b;
 }
 
-FUTURE_DECL (
-	int, sum, int a; int b, a, b
-);
+DEFINE_FUTURE(int, sum, (int, int));
 
 int main(int argc, char *argv[])
 {
