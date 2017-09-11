@@ -82,8 +82,7 @@ int nqueens_seq(int n, int j, char *a)
 
 int nqueens(int, int, char *);
 
-FUTURE_DECL_FREELIST(int);
-FUTURE_DECL(int, nqueens, int n; int j; char *a, n, j, a);
+DEFINE_FUTURE(int, nqueens, (int, int, char *));
 
 int nqueens(int n, int j, char *a)
 {
@@ -103,19 +102,20 @@ int nqueens(int n, int j, char *a)
 		memcpy(b, a, j * sizeof(char));
 		b[j] = (char)i;
 		if (ok(j + 1, b)) {
-			local_counts[i] = __ASYNC(nqueens, n, j + 1, b);
+			local_counts[i] = FUTURE(nqueens, (n, j + 1, b));
 		}
 	}
 
 	for (i = 0; i < n; i++) {
 		if (local_counts[i] != NULL) {
-			count += __AWAIT(local_counts[i], int);
+			count += AWAIT(local_counts[i], int);
 		}
 	}
 
 	return count;
 }
 
+#if 0
 int nqueens_spawn(int, int, char *);
 
 TASK_DECL(int, nqueens_spawn, int n; int j; char *a, n, j, a);
@@ -151,6 +151,7 @@ int nqueens_spawn(int n, int j, char *a)
 
 	return count;
 }
+#endif
 
 void verify_queens(int n, int res)
 {

@@ -21,7 +21,7 @@ int main(int argc, char *argv[])
 	// Initializes runtime system
 	TASKING_INIT(&argc, &argv);
 
-	ASYNC(puts, "Hello World!");
+	ASYNC(puts, ("Hello World!"));
 
 	// ASYNC expands into:
 	//
@@ -38,7 +38,7 @@ int main(int argc, char *argv[])
 	// Inserts a task barrier
 	TASKING_BARRIER();
 
-	future f = __ASYNC(sum, 1, 2);
+	future f = __ASYNC(sum, (1, 2));
 	
 	// FUTURE expands into:
 	//

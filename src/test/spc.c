@@ -82,33 +82,32 @@ void spc_consume_nopoll(int usec)
 }
 
 #ifdef LOOPTASKS
-void spc_produce_loop(void *v __attribute__((unused)))
+void spc_produce_loop(void)
 {
 	long i;
 
 	for_each_task (i) {
 		spc_consume(TASK_GRANULARITY);
-		RT_loop_split();
 	}
 }
 
-ASYNC_DECL(spc_produce_loop, void *v, v);
+DEFINE_ASYNC0(spc_produce_loop, ());
 
 void spc_produce(int n)
 {
-	ASYNC_FOR(spc_produce_loop, 0, n, NULL);
+	ASYNC0(spc_produce_loop, (0, n), ());
 }
 
 #else
 
-ASYNC_DECL(spc_consume, int usec, usec);
+DEFINE_ASYNC(spc_consume, (int));
 
 void spc_produce(int n)
 {
 	int i;
 
 	for (i = 0; i < n; i++) {
-		ASYNC(spc_consume, TASK_GRANULARITY);
+		ASYNC(spc_consume, (TASK_GRANULARITY));
 	}
 }
 #endif
