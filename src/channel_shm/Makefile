@@ -1,10 +1,12 @@
-include ../../common-icc.mk
+include ../../common-gcc.mk
 
-CFLAGS += -pthread
+CPPFLAGS += -DCHANNEL_CACHE=100
+
+CFLAGS += -pthread -fsanitize=address
 
 INCLUDE = -I. -I..
 
-LDFLAGS += -pthread
+LDFLAGS += -pthread -fsanitize=address
 
 PROGS = fib shift throughput utest
 SRCS = channel.c fib.c shift.c throughput.c utest.c

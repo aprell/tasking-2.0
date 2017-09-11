@@ -70,16 +70,116 @@ struct SHM_channel {
 
 #define IS_MULTIPLE(num, n) (((num) & ((n)-1)) == 0x0)
 
+#ifdef CHANNEL_CACHE
+// The maximum number of channels of a certain type that can be cached
+#define CHANNEL_CACHE_CAPACITY CHANNEL_CACHE
+#if CHANNEL_CACHE_CAPACITY < 1
+#error "CHANNEL_CACHE must be > 0"
+#endif
+
+struct channel_cache {
+	struct channel_cache *next;
+	unsigned int chan_size;
+	unsigned int chan_n;
+	int chan_impl;
+	int num_cached;
+	Channel *cache[CHANNEL_CACHE_CAPACITY];
+};
+
+// Channel caches are per thread
+static __thread struct channel_cache *channel_cache;
+static __thread unsigned int channel_cache_len;
+
+// Allocates a free list for storing channels of a given type
+bool channel_cache_alloc(unsigned int size, unsigned int n, int impl)
+{
+	struct channel_cache *p;
+
+	if (impl != MPMC && impl != MPSC && impl != SPSC) {
+		fprintf(stderr, "Warning: Requested invalid channel implementation\n");
+		fprintf(stderr, "Must be either MPMC, MPSC, or SPSC\n");
+		return false;
+	}
+
+	// Avoid multiple free lists for the exact same type of channel
+	for (p = channel_cache; p != NULL; p = p->next) {
+		if (size == p->chan_size && n == p->chan_n && impl == p->chan_impl) {
+			return false;
+		}
+	}
+
+	p = (struct channel_cache *)malloc(sizeof(struct channel_cache));
+	if (!p) {
+		fprintf(stderr, "Warning: malloc failed\n");
+		return false;
+	}
+
+	p->chan_size = size;
+	p->chan_n = n;
+	p->chan_impl = impl;
+	p->num_cached = 0;
+
+	p->next = channel_cache;
+	channel_cache = p;
+	channel_cache_len++;
+
+	return true;
+}
+
+// Frees the entire channel cache, including all channels
+void channel_cache_free(void)
+{
+	struct channel_cache *p, *q;
+	int i;
+
+	for (p = channel_cache; p != NULL; p = q) {
+		q = p->next;
+		for (i = 0; i < p->num_cached; i++) {
+			Channel *chan = p->cache[i];
+			if (chan->buffer)
+				free(chan->buffer);
+			pthread_mutex_destroy(&chan->head_lock);
+			pthread_mutex_destroy(&chan->tail_lock);
+			free(chan);
+		}
+		free(p);
+		channel_cache_len--;
+	}
+
+	assert(channel_cache_len == 0);
+	channel_cache = NULL;
+}
+#endif // CHANNEL_CACHE
+
 Channel *channel_alloc(unsigned int size, unsigned int n, int impl)
 {
 	Channel *chan;
 	unsigned int bufsize;
+#ifdef CHANNEL_CACHE
+	struct channel_cache *p;
+#endif
 
 	if (impl != MPMC && impl != MPSC && impl != SPSC) {
 		fprintf(stderr, "Warning: Requested invalid channel implementation\n");
 		fprintf(stderr, "Must be either MPMC, MPSC, or SPSC\n");
 		return NULL;
 	}
+
+#ifdef CHANNEL_CACHE
+	for (p = channel_cache; p != NULL; p = p->next) {
+		if (size == p->chan_size && n == p->chan_n && impl == p->chan_impl) {
+			// Check if free list contains channel
+			if (p->num_cached > 0) {
+				chan = p->cache[--p->num_cached];
+				assert(IS_EMPTY(chan));
+				return chan;
+			} else {
+				// There can be only one matching free list
+				break;
+			}
+		}
+	}
+#endif
 
 	chan = (Channel *)malloc(sizeof(Channel));
 	if (!chan) {
@@ -108,6 +208,11 @@ Channel *channel_alloc(unsigned int size, unsigned int n, int impl)
 	chan->head = 0;
 	chan->tail = 0;
 
+#ifdef CHANNEL_CACHE
+	// In addition to allocating the channel, try to allocate a cache
+	channel_cache_alloc(size, n, impl);
+#endif
+
 	return chan;
 }
 
@@ -116,36 +221,31 @@ Channel *channel_alloc(unsigned int size, unsigned int n)
 	return channel_alloc(size, n, MPMC);
 }
 
-// Dummy channel: nothing is ever written to or read from it
-Channel *channel_alloc(int impl)
-{
-	Channel *chan = (Channel *)malloc(sizeof(Channel));
-	if (!chan) {
-		fprintf(stderr, "Warning: malloc failed\n");
-		return NULL;
-	}
-
-	chan->buffer = NULL;
-
-	pthread_mutex_init(&chan->head_lock, NULL);
-	pthread_mutex_init(&chan->tail_lock, NULL);
-
-	//XXX
-	chan->owner = -1;
-	chan->impl = impl;
-	chan->closed = 0;
-	chan->size = 0;
-	chan->itemsize = 0;
-	chan->head = 0;
-	chan->tail = 0;
-
-	return chan;
-}
-
 void channel_free(Channel *chan)
 {
+#ifdef CHANNEL_CACHE
+	struct channel_cache *p;
+#endif
+
 	if (!chan)
 		return;
+
+#ifdef CHANNEL_CACHE
+	for (p = channel_cache; p != NULL; p = p->next) {
+		if (chan->itemsize == p->chan_size &&
+			chan->size-1 == p->chan_n &&
+			chan->impl == p->chan_impl) {
+			// Check if free list has space left
+			if (p->num_cached < CHANNEL_CACHE_CAPACITY) {
+				p->cache[p->num_cached++] = chan;
+				return;
+			} else {
+				// There can be only one matching free list
+				break;
+			}
+		}
+	}
+#endif
 
 	if (chan->buffer)
 		free(chan->buffer);
@@ -763,3 +863,129 @@ UTEST(Channel_close)
 
 	} // Test all channel implementations
 }
+
+#ifdef CHANNEL_CACHE
+static bool check_if_cached(Channel *chan)
+{
+	assert(chan != NULL);
+
+	struct channel_cache *p;
+
+	for (p = channel_cache; p != NULL; p = p->next) {
+		if (chan->itemsize == p->chan_size &&
+			chan->size-1 == p->chan_n &&
+			chan->impl == p->chan_impl) {
+			int i;
+			for (i = 0; i < p->num_cached; i++) {
+				if (chan == p->cache[i]) return true;
+			}
+			return false;
+		}
+	}
+
+	return false;
+}
+
+// Must be run in isolation
+// CHANNEL_CACHE_CAPACITY should be greater than two to keep Asan happy
+UTEST(Channel_cache)
+{
+	Channel *chan[10], *stash[10];
+	struct channel_cache *p;
+	int i;
+
+	// Allocate channel caches explicitly
+	check_equal(channel_cache_alloc(sizeof(char), 4, MPMC), true);
+	check_equal(channel_cache_alloc(sizeof(int), 8, MPSC), true);
+	check_equal(channel_cache_alloc(sizeof(double *), 16, SPSC), true);
+	check_equal(channel_cache_alloc(sizeof(char), 4, MPMC), false);
+	check_equal(channel_cache_alloc(sizeof(int), 8, MPSC), false);
+	check_equal(channel_cache_alloc(sizeof(double *), 16, SPSC), false);
+
+	for (p = channel_cache, i = SPSC; p != NULL; p = p->next, i--) {
+		check_equal(p->chan_impl, i);
+	}
+
+	// Length of list is 3
+	check_equal(channel_cache_len, 3);
+
+	// Allocate channel caches implicitly
+	chan[0] = channel_alloc(sizeof(char), 4, MPMC);
+	chan[1] = channel_alloc(sizeof(int), 8, MPSC);
+	chan[2] = channel_alloc(sizeof(double *), 16, SPSC);
+	chan[3] = channel_alloc(sizeof(char), 5, MPMC);
+	chan[4] = channel_alloc(sizeof(long), 8, MPSC);
+	chan[5] = channel_alloc(sizeof(double *), 16, MPSC);
+
+	// Length of list is now 6
+	check_equal(channel_cache_len, 6);
+
+	check_equal(check_if_cached(chan[0]), false);
+	check_equal(check_if_cached(chan[1]), false);
+	check_equal(check_if_cached(chan[2]), false);
+	check_equal(check_if_cached(chan[3]), false);
+	check_equal(check_if_cached(chan[4]), false);
+	check_equal(check_if_cached(chan[5]), false);
+
+	memcpy(stash, chan, 6 * sizeof(Channel *));
+
+	channel_free(chan[0]);
+	channel_free(chan[1]);
+	channel_free(chan[2]);
+	channel_free(chan[3]);
+	channel_free(chan[4]);
+	channel_free(chan[5]);
+
+	check_equal(check_if_cached(stash[0]), true);
+	check_equal(check_if_cached(stash[1]), true);
+	check_equal(check_if_cached(stash[2]), true);
+	check_equal(check_if_cached(stash[3]), true);
+	check_equal(check_if_cached(stash[4]), true);
+	check_equal(check_if_cached(stash[5]), true);
+
+	chan[6] = channel_alloc(sizeof(char), 4, MPMC);
+	chan[7] = channel_alloc(sizeof(int), 8, MPSC);
+	chan[8] = channel_alloc(sizeof(float *), 16, SPSC);
+	chan[9] = channel_alloc(sizeof(double *), 16, SPSC);
+
+	// Length of list is still 6
+	check_equal(channel_cache_len, 6);
+
+	check_equal(chan[6], stash[0]);
+	check_equal(chan[7], stash[1]);
+	check_equal(chan[8], stash[2]);
+
+	memcpy(stash + 6, chan + 6, 4 * sizeof(Channel *));
+
+	channel_free(chan[6]);
+	channel_free(chan[7]);
+	channel_free(chan[8]);
+	channel_free(chan[9]);
+
+	check_equal(check_if_cached(stash[6]), true);
+	check_equal(check_if_cached(stash[7]), true);
+	check_equal(check_if_cached(stash[8]), true);
+	check_equal(check_if_cached(stash[9]), true);
+
+	channel_cache_free();
+
+	// Length of list is back to 0
+	check_equal(channel_cache_len, 0);
+
+	chan[0] = channel_alloc(sizeof(Channel), 1, SPSC);
+	chan[1] = channel_alloc(sizeof(int), 0, SPSC);
+	chan[2] = channel_alloc(sizeof(int), 0, SPSC);
+
+	// Length of list has grown to 2
+	check_equal(channel_cache_len, 2);
+
+	channel_cache_free();
+
+	// Length of list is back to 0
+	check_equal(channel_cache_len, 0);
+
+	channel_free(chan[0]);
+	channel_free(chan[1]);
+	channel_free(chan[2]);
+}
+#endif // CHANNEL_CACHE

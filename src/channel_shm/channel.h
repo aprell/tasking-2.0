@@ -26,7 +26,6 @@ enum {
 
 Channel *channel_alloc(unsigned int size, unsigned int n, int impl);
 Channel *channel_alloc(unsigned int size, unsigned int n); // MPMC
-Channel *channel_alloc(int impl);
 
 void channel_free(Channel *chan);
 
@@ -83,5 +82,11 @@ unique_name(L, __LINE__): \
 	} \
 	/* Use of goto in for requires a statement expression */ \
 	for (; unique_name(__got_val_from_chan, __LINE__); ({ goto unique_name(L, __LINE__); }))
+
+#ifdef CHANNEL_CACHE
+bool channel_cache_alloc(unsigned int size, unsigned int n, int impl);
+
+void channel_cache_free(void);
+#endif
 
 #endif // CHANNEL_H

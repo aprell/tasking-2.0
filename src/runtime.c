@@ -323,6 +323,10 @@ int RT_exit(void)
 
 	channel_free(chan_requests[ID]);
 	channel_free(chan_tasks[ID]);
+#ifdef CHANNEL_CACHE
+	// Free all cached channels
+	channel_cache_free();
+#endif
 
 	PARTITION_RESET();
 
