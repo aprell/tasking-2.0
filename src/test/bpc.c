@@ -86,36 +86,36 @@ void bpc_consume_nopoll(int usec)
 }
 
 void bpc_produce(int, int);
-ASYNC_DECL(bpc_produce, int n; int d, n, d);
+
+DEFINE_ASYNC(bpc_produce, (int, int));
 
 #ifdef LOOPTASKS
-void bpc_produce_loop(void *v __attribute__((unused)))
+void bpc_produce_loop(void)
 {
 	long i;
 
-	for_each_task (i) {
+	ASYNC_FOR (i) {
 		bpc_consume(TASK_GRANULARITY);
-		RT_loop_split();
 	}
 }
 
-ASYNC_DECL(bpc_produce_loop, void *v, v);
+DEFINE_ASYNC0(bpc_produce_loop, ());
 
 void bpc_produce(int n, int d)
 {
 	if (d > 0)
 		// Create producer task...
-		ASYNC(bpc_produce, n, d-1);
+		ASYNC(bpc_produce, (n, d-1));
 	else
 		return;
 
 	// followed by n consumer tasks (in the form of a loop task)
-	ASYNC_FOR(bpc_produce_loop, 0, n, NULL);
+	ASYNC0(bpc_produce_loop, (0, n), ());
 }
 
 #else
 
-ASYNC_DECL(bpc_consume, int usec, usec);
+DEFINE_ASYNC(bpc_consume, (int));
 
 void bpc_produce(int n, int d)
 {
@@ -123,13 +123,13 @@ void bpc_produce(int n, int d)
 
 	if (d > 0)
 		// Create producer task...
-		ASYNC(bpc_produce, n, d-1);
+		ASYNC(bpc_produce, (n, d-1));
 	else
 		return;
 
 	// followed by n consumer tasks
 	for (i = 0; i < n; i++) {
-		ASYNC(bpc_consume, TASK_GRANULARITY);
+		ASYNC(bpc_consume, (TASK_GRANULARITY));
 	}
 }
 #endif
