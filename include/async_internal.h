@@ -2,6 +2,7 @@
 #define ASYNC_INTERNAL_H
 
 #include <assert.h>
+#include <string.h>
 #include "async_internal_utils.h"
 #include "tasking_internal.h"
 #include "profile.h"
@@ -18,9 +19,6 @@ void fun##_task_func(struct fun##_task_data *__d) \
 { \
 	Task *this = get_current_task(); \
 	assert(!is_root_task(this)); \
-	/* FIXME: Breaks strict-aliasing rules */\
-	assert((struct fun##_task_data *)this->data == __d); \
-	\
 	UNPACK(__d, args); \
 	fun(args); \
 }
@@ -51,16 +49,15 @@ PROFILE_EXTERN_DECL(ENQ_DEQ_TASK);
 #define ASYNC_2_CALL(fun, args...) \
 do { \
 	Task *__task; \
-	struct fun##_task_data *__d; \
+	struct fun##_task_data __d; \
 	PROFILE(ENQ_DEQ_TASK) { \
 	\
 	__task = task_alloc(); \
 	__task->parent = get_current_task(); \
 	__task->fn = (void (*)(void *))fun##_task_func; \
 	\
-	/* FIXME: Breaks strict-aliasing rules */\
-	__d = (struct fun##_task_data *)__task->data; \
-	PACK(__d, args); \
+	PACK(&__d, args); \
+	memcpy(__task->data, &__d, sizeof(__d)); \
 	push(__task); \
 	} /* PROFILE */ \
 } while (0)
@@ -72,7 +69,7 @@ do { \
 #define ASYNC_3_CALL(fun, lo, hi, args...) \
 do { \
 	Task *__task; \
-	struct fun##_task_data *__d; \
+	struct fun##_task_data __d; \
 	PROFILE(ENQ_DEQ_TASK) { \
 	\
 	__task = task_alloc(); \
@@ -89,9 +86,8 @@ do { \
 	} \
 	__task->sst = 1; \
 	\
-	/* FIXME: Breaks strict-aliasing rules */\
-	__d = (struct fun##_task_data *)__task->data; \
-	PACK(__d, args); \
+	PACK(&__d, args); \
+	memcpy(__task->data, &__d, sizeof(__d)); \
 	push(__task); \
 	} /* PROFILE */ \
 } while (0)
@@ -165,16 +161,12 @@ static inline Channel *fun##_channel(void) \
 /* Helper function to force a future in a list of futures */\
 static inline void await_##fun(struct future_node *n) \
 { \
-	/* FIXME: Breaks strict-aliasing rules */\
-	FUTURE_GET(n->f, (rty *)n->r); \
+	FUTURE_GET(n->f, n->r, rty); \
 } \
 void fun##_task_func(struct fun##_task_data *__d) \
 { \
 	Task *this = get_current_task(); \
 	assert(!is_root_task(this)); \
-	/* FIXME: Breaks strict-aliasing rules */\
-	assert((struct fun##_task_data *)this->data == __d); \
-	\
 	UNPACK(__d, __f, args); \
 	rty __tmp = fun(args); \
 	FUTURE_SET(__f, __tmp); \
@@ -193,15 +185,16 @@ static inline Channel *fun##_channel(void) \
 /* Helper function to force a future in a list of futures */\
 static inline void await_##fun(struct future_node *n) \
 { \
-	/* FIXME: Breaks strict-aliasing rules */\
-	FUTURE_GET(n->f, (rty *)n->r); \
+	FUTURE_GET(n->f, n->r, rty); \
 } \
 void fun##_task_func(void *__d __attribute__((unused))) \
 { \
 	Task *this = get_current_task(); \
 	assert(!is_root_task(this)); \
+	future __f; \
 	rty __tmp = fun(); \
-	FUTURE_SET(*(future *)this->data, __tmp); \
+	memcpy(&__f, this->data, sizeof(__f)); \
+	FUTURE_SET(__f, __tmp); \
 }
 
 // FUTURE ////////////////////////////////////////////////////////////////////
@@ -217,7 +210,7 @@ void fun##_task_func(void *__d __attribute__((unused))) \
 #define FUTURE_2_CALL(fun, args...) \
 ({  \
 	Task *__task; \
-	struct fun##_task_data *__d; \
+	struct fun##_task_data __d; \
 	future __f; \
 	PROFILE(ENQ_DEQ_TASK) { \
 	\
@@ -225,10 +218,9 @@ void fun##_task_func(void *__d __attribute__((unused))) \
 	__task->parent = get_current_task(); \
 	__task->fn = (void (*)(void *))fun##_task_func; \
 	\
-	/* FIXME: Breaks strict-aliasing rules */\
-	__d = (struct fun##_task_data *)__task->data; \
 	__f = FUTURE_ALLOC(fun, __task); \
-	PACK(__d, __f, args); \
+	PACK(&__d, __f, args); \
+	memcpy(__task->data, &__d, sizeof(__d)); \
 	push(__task); \
 	} /* PROFILE */ \
 	__f; \
@@ -262,8 +254,7 @@ void fun##_task_func(void *__d __attribute__((unused))) \
 	__task->fn = (void (*)(void *))fun##_task_func; \
 	\
 	__f = FUTURE_ALLOC(fun, __task); \
-	/* FIXME: Breaks strict-aliasing rules */\
-	*(future *)__task->data = __f; \
+	memcpy(__task->data, &__f, sizeof(__f)); \
 	push(__task); \
 	} /* PROFILE */ \
 	__f; \
@@ -285,7 +276,7 @@ void fun##_task_func(void *__d __attribute__((unused))) \
 #define AWAIT_CALL(fut, ty) \
 ({ \
 	ty __tmp; \
-	FUTURE_GET(fut, &__tmp); \
+	FUTURE_GET(fut, &__tmp, ty); \
 	__tmp; \
 })
 
@@ -294,7 +285,7 @@ void fun##_task_func(void *__d __attribute__((unused))) \
 // ptr is a pointer that will point to the future's result
 #define AWAIT_CALL(fut, ptr) \
 ({ \
-	FUTURE_GET(fut, ptr); \
+	FUTURE_GET(fut, ptr, typeof(*ptr)); \
 	*(ptr); \
 })
 #endif

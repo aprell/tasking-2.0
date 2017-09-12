@@ -898,7 +898,8 @@ static void handle_steal_request(struct steal_request *req)
 #ifdef LAZY_FUTURES
 		if (task->has_future) {
 			// Lazy allocation
-			lazy_future *f = *(lazy_future **)task->data;
+			lazy_future *f;
+			memcpy(&f, task->data, sizeof(lazy_future *));
 			assert(!f->has_channel);
 			assert(sizeof(f->buf) == 8);
 			f->chan = channel_alloc(sizeof(f->buf), 0, SPSC);
