@@ -32,7 +32,7 @@ typedef lazy_future *future;
 #define FUTURE_SET(fut, res) \
 do { \
 	if (!(fut)->has_channel) { \
-		*(typeof(&(res)))(fut)->buf = (res); \
+		memcpy((fut)->buf, &res, sizeof(res)); \
 		(fut)->set = true; \
 	} else { \
 		assert((fut)->chan != NULL); \
@@ -42,7 +42,7 @@ do { \
 
 extern void RT_force_lazy_future(lazy_future *, void *, unsigned int);
 
-#define FUTURE_GET(fut, res) RT_force_lazy_future(fut, res, sizeof(*res))
+#define FUTURE_GET(fut, res, ty) RT_force_lazy_future(fut, res, sizeof(ty))
 
 #else // Regular, eagerly allocated futures
 
@@ -54,9 +54,9 @@ typedef Channel *future;
 
 extern void RT_force_future_channel(Channel *, void *, unsigned int);
 
-#define FUTURE_GET(fut, res) \
+#define FUTURE_GET(fut, res, ty) \
 do { \
-	RT_force_future_channel(fut, res, sizeof(*(res))); \
+	RT_force_future_channel(fut, res, sizeof(ty)); \
 	channel_free(fut); \
 } while (0)
 
