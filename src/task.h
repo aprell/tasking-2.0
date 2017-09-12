@@ -34,7 +34,7 @@ struct task {
 	bool has_future;
 #endif
 	// Task body carrying user data
-	char data[TASK_DATA_SIZE];
+	char data[TASK_DATA_SIZE] __attribute__((aligned(8)));
 };
 
 static inline Task *task_zero(Task *task)
