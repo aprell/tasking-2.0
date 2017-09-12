@@ -3,7 +3,6 @@
 #include <assert.h>
 #include "tasking.h"
 #include "async.h"
-#include "chanref.h"
 
 #define N 10
 
@@ -12,28 +11,24 @@ void sum(int a, int b)
 	printf("%2d: %2d + %2d = %2d\n", ID, a, b, a+b);
 }
 
-ASYNC_DECL(sum, int a; int b, a, b);
+DEFINE_ASYNC(sum, (int, int));
 
-void sum_loop(void *v __attribute__((unused)))
+void sum_loop(void)
 {
 	long i;
 
-	for_each_task (i) {
+	ASYNC_FOR (i) {
 		printf("%2d: %2ld + %2ld = %2ld\n", ID, i, i+1, i+i+1);
-		RT_loop_split();
 	}
 }
 
-ASYNC_DECL(sum_loop, void *v, v);
+DEFINE_ASYNC0(sum_loop, ());
 
 int main(int argc, char *argv[])
 {
 	TASKING_INIT(&argc, &argv);
 
-	ASYNC_FOR(sum_loop, 0, N, NULL);
-
-	TASKING_BARRIER();
-	//assert(tasking_tasks_exec() == N);
+	ASYNC0(sum_loop, (0, N), ());
 
 	TASKING_BARRIER();
 	TASKING_EXIT();

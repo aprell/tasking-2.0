@@ -86,7 +86,7 @@ void spc_produce_loop(void)
 {
 	long i;
 
-	for_each_task (i) {
+	ASYNC_FOR (i) {
 		spc_consume(TASK_GRANULARITY);
 	}
 }

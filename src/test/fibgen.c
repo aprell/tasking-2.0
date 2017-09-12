@@ -48,14 +48,14 @@ void produce_numbers(chan c1, chan c2)
 			chan_send(c2, i);
 			continue;
 		}
-		fib = f1 + f2; 
+		fib = f1 + f2;
 		f2 = f1;
 		f1 = fib;
 		chan_send(c2, fib);
 	}
 }
 
-ASYNC_DECL(produce_numbers, chan c1; chan c2, c1, c2);
+DEFINE_ASYNC(produce_numbers, (chan, chan));
 
 void print_numbers(chan c, int n)
 {
@@ -65,7 +65,7 @@ void print_numbers(chan c, int n)
 	chan_alloc(c1, 32, 0);
 	chan_alloc(c2, sizeof(int), 7);
 
-	ASYNC(produce_numbers, c1, c2);
+	ASYNC(produce_numbers, (c1, c2));
 
 	chan_send(c1, n);
 
@@ -73,43 +73,14 @@ void print_numbers(chan c, int n)
 		chan_recv(c2, &fib);
 		LOG("fib(%d) = %d\n", i, fib);
 	}
-	
-	// Notify completion with a signal
+
+	// Notify completion with a message
 	chan_send(c, true);
 	chan_free(c1);
 	chan_free(c2);
 }
 
-ASYNC_DECL(print_numbers, chan c; int n, c, n);
-
-int fib_number(int n)
-{
-	int a = 0, b = 1, i;
-
-	for (i = 0; i < n; i++) {
-		int t = a;
-		a = b;
-		b += t;
-	}
-
-	return a;
-}
-
-FUTURE_DECL(int, fib_number, int n, n);
-
-void future_test(void)
-{
-	chan f;
-	int fib;
-
-	chan_alloc(f, sizeof(int), 7);
-
-	ASYNC(fib_number, 42, f);
-	chan_recv(f, &fib);
-	assert(fib == 267914296);
-
-	chan_free(f);
-}
+DEFINE_ASYNC(print_numbers, (chan, int));
 
 int main(int argc, char *argv[])
 {
@@ -118,11 +89,9 @@ int main(int argc, char *argv[])
 
 	TASKING_INIT(&argc, &argv);
 
-	//future_test();
-
 	chan_alloc(c, 32, 0);
 
-	ASYNC(print_numbers, c, 42);
+	ASYNC(print_numbers, (c, 42));
 
 	// Wait for completion
 	chan_recv(c, &done);

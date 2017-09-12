@@ -58,10 +58,8 @@ int fib_like_seq(int n)
 
 int fib_like(int);
 
-FUTURE_DECL_FREELIST(int);
-FUTURE_DECL(int, fib_like, int n, n);
+DEFINE_FUTURE(int, fib_like, (int));
 
-// Taskwait based on channel operations
 int fib_like(int n)
 {
 	future x;
@@ -70,31 +68,10 @@ int fib_like(int n)
 	if (n < 2)
 		return compute(TASK_GRANULARITY);
 
-    x = __ASYNC(fib_like, n-1);
+    x = FUTURE(fib_like, (n-1));
 	y = fib_like(n-2);
 
-	return __AWAIT(x, int) + y + 1;
-}
-
-int fib_like_spawn(int);
-
-TASK_DECL(int, fib_like_spawn, int n, n);
-
-// Taskwait based on channel operations
-int fib_like_spawn(int n)
-{
-	atomic_t num_children = 0;
-	int x, y;
-
-	if (n < 2)
-		return compute(TASK_GRANULARITY);
-
-	SPAWN(fib_like_spawn, n-1, &x);
-	y = fib_like_spawn(n-2);
-
-	SYNC;
-
-	return x + y + 1;
+	return AWAIT(x, int) + y + 1;
 }
 
 static void verify_result(int n, int res)

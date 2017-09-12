@@ -7,7 +7,7 @@
 // functions for implementing tasks and futures
 
 // Ignore return value of puts
-DEFINE_ASYNC(puts, (const char *));
+DEFINE_ASYNC0(puts, (const char *));
 
 int sum(int a, int b)
 {
@@ -27,34 +27,34 @@ int main(int argc, char *argv[])
 	//
 	// do {
 	//     Task *__task = task_alloc();
-	//     struct puts_task_data *__d;
+	//     struct puts_task_data __d;
 	//     __task->parent = current_task();
-	//     __task->fn = (void (*)(void *))puts_task_fn;
-	//     __d = (struct puts_task_data *)__task->data;
-	//     *(__d) = (typeof(*(__d))){ "Hello World!" };
+	//     __task->fn = (void (*)(void *))puts_task_func;
+	//     __d = (typeof(__d)){ "Hello World!" };
+	//     memcpy(__task->data, &__d, sizeof(__d));
 	//     rts_push(__task);
 	// } while (0);
 
 	// Inserts a task barrier
 	TASKING_BARRIER();
 
-	future f = __ASYNC(sum, (1, 2));
+	future f = FUTURE(sum, (1, 2));
 	
 	// FUTURE expands into:
 	//
 	// future f = ({
 	//     Task *__task = task_alloc();
-	//     struct puts_task_data *__d;
-	//     future __f = sum_future_alloc();
+	//     struct sum_task_data __d;
+	//     future __f = sum_channel();
 	//     __task->parent = current_task();
-	//     __task->fn = (void (*)(void *))sum_task_fn;
-	//     __d = (struct puts_task_data *)__task->data;
-	//     *(__d) = (typeof(*(__d))){ 1, 2, __f };
+	//     __task->fn = (void (*)(void *))sum_task_func;
+	//     __d = (typeof(__d)){ __f, 1, 2 };
+	//     memcpy(__task->data, &__d, sizeof(__d));
 	//     rts_push(__task);
 	//     __f;
 	// });
 
-	int n = __AWAIT(f, int);
+	int n = AWAIT(f, int);
 	
 	// AWAIT expands into:
 	//

@@ -116,23 +116,22 @@ void consume(double usec)
 	//printf("Elapsed: %.2lfus\n", elapsed);
 }
 
-ASYNC_DECL(consume, double usec, usec);
+DEFINE_ASYNC(consume, (double));
 
-void flat_loop_outlined(void *v __attribute__((unused)))
+void flat_loop_outlined(void)
 {
 	long i;
 
-	for_each_task(i) {
+	ASYNC_FOR (i) {
 		consume(task_size(granularity, i));
-		RT_loop_split();
 	}
 }
 
-ASYNC_DECL(flat_loop_outlined, void *v, v);
+DEFINE_ASYNC0(flat_loop_outlined, ());
 
 void flat_loop(int n)
 {
-	ASYNC_FOR(flat_loop_outlined, 0, n, NULL);
+	ASYNC0(flat_loop_outlined, (0, n), ());
 }
 
 void flat(int n)
@@ -140,7 +139,7 @@ void flat(int n)
 	int i;
 
 	for (i = 0; i < n; i++) {
-		ASYNC(consume, task_size(granularity, i));
+		ASYNC(consume, (task_size(granularity, i)));
 	}
 }
 

@@ -29,7 +29,7 @@ void consume(int usec)
 	}
 }
 
-ASYNC_DECL(consume, int usec, usec);
+DEFINE_ASYNC(consume, (int));
 
 #define N 1000
 
