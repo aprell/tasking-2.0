@@ -27,12 +27,10 @@ src/bpc*
 src/fib
 src/fibgen
 src/fib-like*
-src/looptest
 src/qsort*
 src/cilksort*
 src/nqueens*
 src/spc*
-src/sum
 src/mm*
 src/nbody3*
 src/uts
@@ -40,7 +38,6 @@ src/uts-seq*
 src/uts-par*
 src/lu*
 src/loopsched
-src/futures_api
 src/task_example
 src/test_async
 
