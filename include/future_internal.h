@@ -43,6 +43,18 @@ extern void RT_force_lazy_future(lazy_future *, void *, unsigned int);
 
 #define FUTURE_GET(fut, res, ty) RT_force_lazy_future(fut, res, sizeof(ty))
 
+#define REDUCE_IMPL(op, var) \
+({ \
+	Task *this = get_current_task(); \
+	while (required_futures != NULL && required_futures->t == this) { \
+		struct future_dependence *p = required_futures; \
+		required_futures = required_futures->next; \
+		var op##= AWAIT(&p->f, typeof(var)); \
+		free(p); \
+	} \
+	var; \
+})
+
 #else // Regular, eagerly allocated futures
 
 typedef Channel *future;
@@ -55,9 +67,21 @@ extern void RT_force_future_channel(Channel *, void *, unsigned int);
 
 #define FUTURE_GET(fut, res, ty) \
 do { \
-	RT_force_future_channel(fut, res, sizeof(ty)); \
+	RT_force_future(fut, res, sizeof(ty)); \
 	channel_free(fut); \
 } while (0)
+
+#define REDUCE_IMPL(op, var) \
+({ \
+	Task *this = get_current_task(); \
+	while (required_futures != NULL && required_futures->t == this) { \
+		struct future_dependence *p = required_futures; \
+		required_futures = required_futures->next; \
+		var op##= AWAIT(p->f, typeof(var)); \
+		free(p); \
+	} \
+	var; \
+})
 
 #endif // LAZY_FUTURES
 
@@ -77,5 +101,19 @@ static inline void await_future_nodes(struct future_node *hd)
 		n->await(n);
 	}
 }
+
+// Task t requires the result of future f
+
+struct future_dependence {
+	Task *t;
+#ifdef LAZY_FUTURES
+	lazy_future f;
+#else
+	future f;
+#endif
+	struct future_dependence *next;
+};
+
+extern PRIVATE struct future_dependence *required_futures;
 
 #endif // FUTURE_INTERNAL_H

@@ -235,6 +235,40 @@ void fun##_task_func(void *__d __attribute__((unused))) \
 	*CONCAT(hd_, __LINE__) = (struct future_node){ FUTURE_2_CALL(fun, ARGS args), addr, await_##fun, hd }; \
 	hd = CONCAT(hd_, __LINE__)
 
+// FUTURE (four arguments) ///////////////////////////////////////////////////
+
+#define FUTURE_4_IMPL_3(fun, bounds, args, _) FUTURE_4_IMPL_4(fun, ARGS bounds, ARGS args)
+#define FUTURE_4_IMPL_4(fun, lo, hi, ...) FUTURE_4_CALL(fun, lo, hi, __VA_ARGS__)
+#define FUTURE_4_CALL(fun, lo, hi, args...) \
+({ \
+	Task *__task; \
+	struct fun##_task_data __d; \
+	future __f; \
+	PROFILE(ENQ_DEQ_TASK) { \
+	\
+	__task = task_alloc(); \
+	__task->parent = get_current_task(); \
+	__task->fn = (void (*)(void *))fun##_task_func; \
+	__task->is_loop = true; \
+	__task->start = (lo); \
+	__task->cur = (lo); \
+	__task->end = (hi); \
+	__task->has_future = true; \
+	/* Chunk size, at least 1 */ \
+	__task->chunks = abs((hi) - (lo)) / num_workers; \
+	if (__task->chunks == 0) { \
+		__task->chunks = 1; \
+	} \
+	__task->sst = 1; \
+	\
+	__f = FUTURE_ALLOC(fun); \
+	PACK(&__d, __f, args); \
+	memcpy(__task->data, &__d, sizeof(__d)); \
+	push(__task); \
+	} /* PROFILE */ \
+	__f; \
+})
+
 // FUTURE0 ///////////////////////////////////////////////////////////////////
 
 #define FUTURE0_IMPL(...) FUTURE0_IMPL_2(VA_NARGS(__VA_ARGS__), __VA_ARGS__)
@@ -269,6 +303,38 @@ void fun##_task_func(void *__d __attribute__((unused))) \
 	struct future_node *CONCAT(hd_, __LINE__) = alloca(sizeof(struct future_node)); \
 	*CONCAT(hd_, __LINE__) = (struct future_node){ FUTURE0_2_CALL(fun), addr, await_##fun, hd }; \
 	hd = CONCAT(hd_, __LINE__)
+
+// FUTURE0 (four arguments) //////////////////////////////////////////////////
+
+#define FUTURE0_4_IMPL_3(fun, bounds, args, _) FUTURE0_4_IMPL_4(fun, ARGS bounds)
+#define FUTURE0_4_IMPL_4(fun, ...) FUTURE0_4_CALL(fun, __VA_ARGS__)
+#define FUTURE0_4_CALL(fun, lo, hi) \
+({ \
+	Task *__task; \
+	future __f; \
+	PROFILE(ENQ_DEQ_TASK) { \
+	\
+	__task = task_alloc(); \
+	__task->parent = get_current_task(); \
+	__task->fn = (void (*)(void *))fun##_task_func; \
+	__task->is_loop = true; \
+	__task->start = (lo); \
+	__task->cur = (lo); \
+	__task->end = (hi); \
+	__task->has_future = true; \
+	/* Chunk size, at least 1 */ \
+	__task->chunks = abs((hi) - (lo)) / num_workers; \
+	if (__task->chunks == 0) { \
+		__task->chunks = 1; \
+	} \
+	__task->sst = 1; \
+	\
+	__f = FUTURE_ALLOC(fun); \
+	memcpy(__task->data, &__f, sizeof(__f)); \
+	push(__task); \
+	} /* PROFILE */ \
+	__f; \
+})
 
 // AWAIT /////////////////////////////////////////////////////////////////////
 
@@ -308,5 +374,9 @@ void fun##_task_func(void *__d __attribute__((unused))) \
 	assert(this->is_loop); \
 	assert(this->start == this->cur); \
 	for (i = this->start, this->cur++; i < this->end; i++, this->cur++, RT_loop_split())
+
+// REDUCE ////////////////////////////////////////////////////////////////////
+
+// Defined in future_internal.h
 
 #endif // ASYNC_INTERNAL_H

@@ -107,8 +107,42 @@ DEFINE_FUTURE  (int, wrt1, (int));
 DEFINE_FUTURE  (int, wrt2, (int, int));
 DEFINE_FUTURE  (int, wrt3, (int, int, int));
 
+// Splittable FUTURE functions whose results can be combined
+
+#define N 100000
+static long array[N];
+
+long wrt0L(void)
+{
+	long sum = 0, i;
+
+	ASYNC_FOR (i) {
+		sum += array[i];
+	}
+
+	printf("wrt0L: %ld\n", REDUCE(+, sum));
+	return sum;
+}
+
+long wrt1L(long array[])
+{
+	long sum = 0, i;
+
+	ASYNC_FOR (i) {
+		sum += array[i];
+	}
+
+	printf("wrt1L: %ld\n", REDUCE(+, sum));
+	return sum;
+}
+
+DEFINE_FUTURE0 (long, wrt0L, ());
+DEFINE_FUTURE  (long, wrt1L, (long *));
+
 int main(int argc, char *argv[])
 {
+	int i;
+
 	TASKING_INIT(&argc, &argv);
 
 	ASYNC0 (nrt0, ());
@@ -162,6 +196,18 @@ int main(int argc, char *argv[])
 
 	assert(a == 0);
 	assert(b == 1);
+
+	for (i = 0; i < N; i++) {
+		array[i] = 1;
+	}
+
+	// The fourth and last argument is used for "overload resolution".
+	// There might be a better solution.
+	future f4 = FUTURE0 (wrt0L, (0, N), (), 0);
+	future f5 = FUTURE  (wrt1L, (0, N), (array), 0);
+
+	assert(AWAIT(f5, long) == N);
+	assert(AWAIT(f4, long) == N);
 
 	TASKING_BARRIER();
 	TASKING_EXIT();

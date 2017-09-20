@@ -41,4 +41,8 @@
 
 #define ASYNC_FOR(i) ASYNC_FOR_IMPL(i)
 
+// Reductions for splittable tasks ///////////////////////////////////////////
+
+#define REDUCE(op, var) REDUCE_IMPL(op, var)
+
 #endif // ASYNC_H
