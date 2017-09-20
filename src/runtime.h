@@ -3,7 +3,6 @@
 
 #include "tasking_internal.h"
 #include "channel.h"
-#include "overload_RT_force_future_channel.h"
 #include "async.h"
 
 typedef struct partition {
@@ -146,7 +145,6 @@ int RT_schedule(void);
 int RT_barrier(void);
 void RT_force_future(Channel *chan, void *data, unsigned int size);
 void RT_force_future_channel(Channel *chan, void *data, unsigned int size);
-void RT_force_future_channel(Channel *chan);
 #ifdef LAZY_FUTURES
 void RT_force_lazy_future(lazy_future *f, void *data, unsigned int size);
 #endif
