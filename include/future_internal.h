@@ -19,10 +19,9 @@ typedef struct {
 typedef lazy_future *future;
 
 // Allocated in the stack frame of the caller
-#define FUTURE_ALLOC(_, task) \
+#define FUTURE_ALLOC(_) \
 ({ \
 	future __f = alloca(sizeof(lazy_future)); \
-	(task)->has_future = true; \
 	__f->chan = NULL; \
 	__f->has_channel = false; \
 	__f->set = false; \
@@ -48,7 +47,7 @@ extern void RT_force_lazy_future(lazy_future *, void *, unsigned int);
 
 typedef Channel *future;
 
-#define FUTURE_ALLOC(fun, _) fun##_channel()
+#define FUTURE_ALLOC(fun) fun##_channel()
 
 #define FUTURE_SET(fut, res) channel_send(fut, &(res), sizeof(res))
 

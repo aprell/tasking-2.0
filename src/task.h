@@ -30,9 +30,7 @@ struct task {
 	long chunks;
 	long sst;
 	bool is_loop;
-#ifdef LAZY_FUTURES
 	bool has_future;
-#endif
 	// Task body carrying user data
 	char data[TASK_DATA_SIZE] __attribute__((aligned(8)));
 };
@@ -54,9 +52,7 @@ static inline Task *task_zero(Task *task)
 	task->chunks = 0;
 	task->sst = 0;
 
-#ifdef LAZY_FUTURES
 	task->has_future = false;
-#endif
 
 	return task;
 }

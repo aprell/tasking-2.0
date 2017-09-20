@@ -217,8 +217,9 @@ void fun##_task_func(void *__d __attribute__((unused))) \
 	__task = task_alloc(); \
 	__task->parent = get_current_task(); \
 	__task->fn = (void (*)(void *))fun##_task_func; \
+	__task->has_future = true; \
 	\
-	__f = FUTURE_ALLOC(fun, __task); \
+	__f = FUTURE_ALLOC(fun); \
 	PACK(&__d, __f, args); \
 	memcpy(__task->data, &__d, sizeof(__d)); \
 	push(__task); \
@@ -252,8 +253,9 @@ void fun##_task_func(void *__d __attribute__((unused))) \
 	__task = task_alloc(); \
 	__task->parent = get_current_task(); \
 	__task->fn = (void (*)(void *))fun##_task_func; \
+	__task->has_future = true; \
 	\
-	__f = FUTURE_ALLOC(fun, __task); \
+	__f = FUTURE_ALLOC(fun); \
 	memcpy(__task->data, &__f, sizeof(__f)); \
 	push(__task); \
 	} /* PROFILE */ \
