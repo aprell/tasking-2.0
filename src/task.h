@@ -15,8 +15,8 @@ typedef struct task Task;
 typedef struct PRM_task_queue PRM_task_queue;
 
 struct task {
-	// Only used in taskwait
-	// Shouldn't be interpreted if task was created by a different worker
+	// Required to pop child tasks:
+	// if (child->parent == this) ...
 	struct task *parent;
 	struct {
 		struct task *prev;
