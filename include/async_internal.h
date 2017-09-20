@@ -275,8 +275,10 @@ void fun##_task_func(void *__d __attribute__((unused))) \
 #define AWAIT_IMPL(fut, ty) AWAIT_CALL(fut, ty)
 #define AWAIT_CALL(fut, ty) \
 ({ \
+	/* Allows to nest FUTURE inside AWAIT */ \
+	future __f = (fut); \
 	ty __tmp; \
-	FUTURE_GET(fut, &__tmp, ty); \
+	FUTURE_GET(__f, &__tmp, ty); \
 	__tmp; \
 })
 
