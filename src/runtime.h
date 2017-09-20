@@ -148,7 +148,6 @@ void RT_force_future_channel(Channel *chan, void *data, unsigned int size);
 #ifdef LAZY_FUTURES
 void RT_force_lazy_future(lazy_future *f, void *data, unsigned int size);
 #endif
-void RT_taskwait(atomic_t *num_children);
 
 // These functions implement the load balancing between workers
 void push(Task *task);

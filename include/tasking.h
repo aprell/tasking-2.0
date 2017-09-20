@@ -20,11 +20,6 @@ do { \
 	MASTER RT_barrier(); \
 } while (0)
 
-#define TASKING_WAIT() \
-do { \
-	RT_taskwait(&num_children); \
-} while (0)
-
 // r is a pointer to the result value
 #define TASKING_FORCE_FUTURE(c, r) \
 do { \
