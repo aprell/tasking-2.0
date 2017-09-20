@@ -20,12 +20,6 @@ do { \
 	MASTER RT_barrier(); \
 } while (0)
 
-// r is a pointer to the result value
-#define TASKING_FORCE_FUTURE(c, r) \
-do { \
-	RT_force_future_channel(c, r, sizeof(typeof(*(r)))); \
-} while (0)
-
 extern PRIVATE int ID;
 
 int tasking_init(int *argc, char ***argv);
