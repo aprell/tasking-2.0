@@ -1517,8 +1517,6 @@ static inline long split_adaptive(Task *task)
 	return task->end - chunk;
 }
 
-PRIVATE struct future_node *required_futures;
-
 static void split_loop(Task *task, struct steal_request *req)
 {
 	Task *dup;
@@ -1569,9 +1567,11 @@ static void split_loop(Task *task, struct steal_request *req)
 		p->f = channel_alloc(32, 0, SPSC);
 #endif
 		memcpy(dup->data, &p->f, sizeof(future));
-		p->t = get_current_task();
-		p->next = required_futures;
-		required_futures = p;
+		p->next = get_current_task()->futures;
+		get_current_task()->futures = p;
+		// The list of futures required by the current task must not be shared!
+		dup->futures = NULL;
+
 	}
 
 	channel_send(req->chan, (void *)&dup, sizeof(dup));

@@ -8,7 +8,7 @@
 
 #define TASK_SUCCESS 0
 #define TASK_ERROR_BASE 400
-#define TASK_DATA_SIZE (128 - 3 * sizeof(long))
+#define TASK_DATA_SIZE (192 - 96)
 #define TASK_SIZE sizeof(Task)
 
 typedef struct task Task;
@@ -31,6 +31,8 @@ struct task {
 	long sst;
 	bool is_loop;
 	bool has_future;
+	// List of futures required by the current task
+	void *futures;
 	// Task body carrying user data
 	char data[TASK_DATA_SIZE] __attribute__((aligned(8)));
 };
@@ -53,6 +55,7 @@ static inline Task *task_zero(Task *task)
 	task->sst = 0;
 
 	task->has_future = false;
+	task->futures = NULL;
 
 	return task;
 }

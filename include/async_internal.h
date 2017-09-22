@@ -232,7 +232,7 @@ void fun##_task_func(void *__d __attribute__((unused))) \
 #define FUTURE_3_IMPL_3(fun, args, addr) FUTURE_3_CALL(fun, args, addr)
 #define FUTURE_3_CALL(fun, args, addr) \
 	struct future_node *CONCAT(hd_, __LINE__) = alloca(sizeof(struct future_node)); \
-	*CONCAT(hd_, __LINE__) = (struct future_node){ get_current_task(), FUTURE_2_CALL(fun, ARGS args), addr, await_##fun, hd }; \
+	*CONCAT(hd_, __LINE__) = (struct future_node){ FUTURE_2_CALL(fun, ARGS args), addr, await_##fun, hd }; \
 	hd = CONCAT(hd_, __LINE__)
 
 // FUTURE (four arguments) ///////////////////////////////////////////////////
@@ -301,7 +301,7 @@ void fun##_task_func(void *__d __attribute__((unused))) \
 #define FUTURE0_3_IMPL_3(fun, args, addr) FUTURE0_3_CALL(fun, addr)
 #define FUTURE0_3_CALL(fun, addr) \
 	struct future_node *CONCAT(hd_, __LINE__) = alloca(sizeof(struct future_node)); \
-	*CONCAT(hd_, __LINE__) = (struct future_node){ get_current_task(), FUTURE0_2_CALL(fun), addr, await_##fun, hd }; \
+	*CONCAT(hd_, __LINE__) = (struct future_node){ FUTURE0_2_CALL(fun), addr, await_##fun, hd }; \
 	hd = CONCAT(hd_, __LINE__)
 
 // FUTURE0 (four arguments) //////////////////////////////////////////////////
