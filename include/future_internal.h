@@ -47,9 +47,10 @@ extern void RT_force_lazy_future(lazy_future *, void *, unsigned int);
 ({ \
 	Task *this = get_current_task(); \
 	while (required_futures != NULL && required_futures->t == this) { \
-		struct future_dependence *p = required_futures; \
+		struct future_node *p = required_futures; \
 		required_futures = required_futures->next; \
-		var op##= AWAIT(&p->f, typeof(var)); \
+		var op##= AWAIT(p->f, typeof(var)); \
+		free(p->f); \
 		free(p); \
 	} \
 	var; \
@@ -75,7 +76,7 @@ do { \
 ({ \
 	Task *this = get_current_task(); \
 	while (required_futures != NULL && required_futures->t == this) { \
-		struct future_dependence *p = required_futures; \
+		struct future_node *p = required_futures; \
 		required_futures = required_futures->next; \
 		var op##= AWAIT(p->f, typeof(var)); \
 		free(p); \
@@ -86,8 +87,10 @@ do { \
 #endif // LAZY_FUTURES
 
 // Scoped futures are wrapped in a structure and collected in a list
+// Task t requires the result of future f
 
 struct future_node {
+	Task *t;
 	future f;
 	void *r;
 	void (*await)(struct future_node *);
@@ -98,22 +101,11 @@ static inline void await_future_nodes(struct future_node *hd)
 {
 	struct future_node *n;
 	for (n = hd; n != NULL; n = n->next) {
+		assert(n->t == get_current_task());
 		n->await(n);
 	}
 }
 
-// Task t requires the result of future f
-
-struct future_dependence {
-	Task *t;
-#ifdef LAZY_FUTURES
-	lazy_future f;
-#else
-	future f;
-#endif
-	struct future_dependence *next;
-};
-
-extern PRIVATE struct future_dependence *required_futures;
+extern PRIVATE struct future_node *required_futures;
 
 #endif // FUTURE_INTERNAL_H

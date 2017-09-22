@@ -1517,7 +1517,7 @@ static inline long split_adaptive(Task *task)
 	return task->end - chunk;
 }
 
-PRIVATE struct future_dependence *required_futures;
+PRIVATE struct future_node *required_futures;
 
 static void split_loop(Task *task, struct steal_request *req)
 {
@@ -1557,18 +1557,18 @@ static void split_loop(Task *task, struct steal_request *req)
 		// Patch the task with a new future for the result
 		// Problematic: We don't know the result type, that is, what kind of
 		// values will be sent over the channel
-		struct future_dependence *p = (struct future_dependence *)malloc(sizeof(struct future_dependence));
+		struct future_node *p = malloc(sizeof(struct future_node));
+		p->r = p->await = NULL;
 #ifdef LAZY_FUTURES
-		lazy_future *f = &p->f;
-		f->chan = channel_alloc(32, 0, SPSC);
-		f->has_channel = true;
-		f->set = false;
-		memcpy(dup->data, &f, sizeof(future));
+		p->f = malloc(sizeof(lazy_future));
+		p->f->chan = channel_alloc(32, 0, SPSC);
+		p->f->has_channel = true;
+		p->f->set = false;
 		futures_converted++;
 #else
 		p->f = channel_alloc(32, 0, SPSC);
-		memcpy(dup->data, &p->f, sizeof(future));
 #endif
+		memcpy(dup->data, &p->f, sizeof(future));
 		p->t = get_current_task();
 		p->next = required_futures;
 		required_futures = p;
