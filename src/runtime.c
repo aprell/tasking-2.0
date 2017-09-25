@@ -17,6 +17,7 @@ UTEST_MAIN() {}
 #define MANAGER	if (is_manager)
 #define MAXNP 256
 #define PARTITIONS 1
+#include "partition.h"
 #include "partition.c"
 
 // Supported loop-splitting strategies (-DSPLIT=[half|guided|adaptive])
