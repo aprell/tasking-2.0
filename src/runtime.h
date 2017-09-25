@@ -27,11 +27,7 @@ int RT_init();
 int RT_exit(void);
 int RT_schedule(void);
 int RT_barrier(void);
-void RT_force_future(Channel *chan, void *data, unsigned int size);
-void RT_force_future_channel(Channel *chan, void *data, unsigned int size);
-#ifdef LAZY_FUTURES
-void RT_force_lazy_future(lazy_future *f, void *data, unsigned int size);
-#endif
+void RT_force_future(future f, void *data, unsigned int size);
 
 // These functions implement the load balancing between workers
 void push(Task *task);

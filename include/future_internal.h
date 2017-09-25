@@ -39,9 +39,7 @@ do { \
 	} \
 } while (0)
 
-extern void RT_force_lazy_future(lazy_future *, void *, unsigned int);
-
-#define FUTURE_GET(fut, res, ty) RT_force_lazy_future(fut, res, sizeof(ty))
+#define FUTURE_GET(fut, res, ty) RT_force_future(fut, res, sizeof(ty))
 
 #define REDUCE_IMPL(op, var) \
 ({ \
@@ -63,8 +61,6 @@ typedef Channel *future;
 #define FUTURE_ALLOC(fun) fun##_channel()
 
 #define FUTURE_SET(fut, res) channel_send(fut, &(res), sizeof(res))
-
-extern void RT_force_future_channel(Channel *, void *, unsigned int);
 
 #define FUTURE_GET(fut, res, ty) \
 do { \
