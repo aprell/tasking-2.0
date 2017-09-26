@@ -29,6 +29,7 @@ UTEST_MAIN() {}
 #define LOG(...) { printf(__VA_ARGS__); fflush(stdout); }
 #define UNUSED(x) x __attribute__((unused))
 
+// Private task deque
 static PRIVATE DequeListTL *deque;
 
 // Worker -> worker: intra-partition steal requests (MPSC)
@@ -98,8 +99,13 @@ struct steal_request {
 
 static inline void print_steal_req(struct steal_request *req)
 {
+#ifdef STEAL_ADAPTIVE
 	LOG("{ .ID = %d, .try = %d, .partition = %d, .pID = %d, .state = %d, .stealhalf = %s }\n",
 		req->ID, req->try, req->partition, req->pID, req->state, req->stealhalf ? "true" : "false");
+#else
+	LOG("{ .ID = %d, .try = %d, .partition = %d, .pID = %d, .state = %d }\n",
+		req->ID, req->try, req->partition, req->pID, req->state);
+#endif
 }
 
 static PRIVATE struct steal_request steal_req;
@@ -311,17 +317,6 @@ int RT_exit(void)
 	return 0;
 }
 
-static inline bool is_in_my_partition(int ID)
-{
-	int *w;
-
-	foreach_worker(w, my_partition)
-		if (*w == ID)
-			return true;
-
-	return false;
-}
-
 Task *task_alloc(void)
 {
 	return deque_list_tl_task_new(deque);
@@ -340,7 +335,6 @@ static inline int next_victim(struct steal_request *req)
 	for (i = req->try; i < MAX_STEAL_ATTEMPTS; i++) {
 		victim = victims[req->ID][i];
 		if (LIKELY_HAS_TASKS(victim)) {
-			//assert(is_in_my_partition(victim));
 			//LOG("Worker %d: Choosing victim %d after %i tries (requester %d)\n", ID, victim, i, req->ID);
 			return victim;
 		}
@@ -377,6 +371,7 @@ static inline void decline_steal_request(struct steal_request *);
 static inline void decline_all_steal_requests(void);
 static inline void split_loop(Task *, struct steal_request *);
 
+// Termination detection
 static inline void register_idle(struct steal_request *);
 static inline void unregister_idle(struct steal_request *);
 static inline void detect_termination(void);
@@ -490,17 +485,6 @@ static PRIVATE int notes;
 static PRIVATE bool quiescent;
 static PRIVATE bool after_barrier;
 
-#ifdef STEAL_ADAPTIVE
-// Number of steals after which the current strategy is reevaluated
-#ifndef STEAL_ADAPTIVE_INTERVAL
-#define STEAL_ADAPTIVE_INTERVAL 25
-#endif
-PRIVATE int num_tasks_exec_recently;
-static PRIVATE int num_steals_exec_recently;
-static PRIVATE bool stealhalf;
-PRIVATE unsigned int requests_steal_one, requests_steal_half;
-#endif
-
 static inline void register_idle(struct steal_request *req)
 {
 	assert(req->state == STATE_IDLE);
@@ -526,6 +510,17 @@ static inline void unregister_idle(struct steal_request *req)
 	}
 	notes++;
 }
+
+#ifdef STEAL_ADAPTIVE
+// Number of steals after which the current strategy is reevaluated
+#ifndef STEAL_ADAPTIVE_INTERVAL
+#define STEAL_ADAPTIVE_INTERVAL 25
+#endif
+PRIVATE int num_tasks_exec_recently;
+static PRIVATE int num_steals_exec_recently;
+static PRIVATE bool stealhalf;
+PRIVATE unsigned int requests_steal_one, requests_steal_half;
+#endif
 
 // Asynchronous call of function fn on worker ID
 // Executed for side effects only
