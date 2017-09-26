@@ -133,16 +133,6 @@ static PRIVATE int *my_victims;
 // 0 <= pID <= num_workers_rt
 static PRIVATE int pID;
 
-struct worker_info {
-	int coreID, rank, hops_away;
-};
-
-// Only manager threads perform load balancing
-// workers field is uninitialized for other threads
-// We calculate victim information at initialization time in order to reduce
-// the overhead of finding victims at runtime
-static PRIVATE struct worker_info workers[MAXNP][MAXNP];
-
 static void init_victims(int ID)
 {
 	int available_workers[num_workers];
@@ -152,35 +142,22 @@ static void init_victims(int ID)
 	for (i = 0, j = 0; i < my_partition->num_workers; i++) {
 		int worker = my_partition->workers[i];
 		if (worker < num_workers) {
-			available_workers[j] = worker;
+			available_workers[j++] = worker;
 			my_partition->num_workers_rt++;
-			j++;
-		}
-	}
-
-	// This is only really needed for latency-oriented work-stealing
-	// We need a different "latency map" depending on which worker is thief
-	// In random work-stealing, we don't care which worker is thief because
-	// we always select a victim at random
-	for (i = 0; i < num_workers; i++) {
-		for (j = 0; j < my_partition->num_workers_rt; j++) {
-			int worker = available_workers[j];
-			workers[i][j].rank = worker;
 		}
 	}
 
 	// my_victims contains all possible victims in my_partition
 	for (i = 0, j = 0; i < my_partition->num_workers_rt; i++) {
-		if (workers[ID][i].rank != ID) {
-			my_victims[j] = workers[ID][i].rank;
-			//LOG("Worker %2d: victim[%d] = %d\n", ID, j, my_victims[j]);
-			j++;
+		if (available_workers[i] != ID) {
+			my_victims[j++] = available_workers[i];
 		}
 	}
 
-	// We put our own ID there because eventually, after N unsuccessful tries
+	// We store our own ID here because eventually, after N unsuccessful tries
 	// (N being the number of potential victims in my_partition), the steal
-	// request must go back to the thief. Quiescence detection depends on that.
+	// request must go back to the thief. Otherwise, we would not be able to
+	// send steal requests ahead of time.
 	my_victims[j] = ID;
 
 	MANAGER LOG("Manager %2d: %d of %d workers available\n", ID,
