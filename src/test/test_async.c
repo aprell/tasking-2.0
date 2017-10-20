@@ -167,6 +167,8 @@ int main(int argc, char *argv[])
 	assert(AWAIT(f1, int) == 1);
 	assert(AWAIT(f0, int) == 0);
 
+	TASKING_BARRIER();
+
 	int a, b;
 
 	AWAIT_ALL {
@@ -197,17 +199,19 @@ int main(int argc, char *argv[])
 	assert(a == 0);
 	assert(b == 1);
 
+	TASKING_BARRIER();
+
 	for (i = 0; i < N; i++) {
 		array[i] = 1;
 	}
 
 	// The fourth and last argument is used for "overload resolution".
 	// There might be a better solution.
-	future f4 = FUTURE0 (wrt0L, (0, N), (), 0);
+	//future f4 = FUTURE0 (wrt0L, (0, N), (), 0);
 	future f5 = FUTURE  (wrt1L, (0, N), (array), 0);
 
 	assert(AWAIT(f5, long) == N);
-	assert(AWAIT(f4, long) == N);
+	//assert(AWAIT(f4, long) == N);
 
 	TASKING_BARRIER();
 	TASKING_EXIT();
