@@ -427,7 +427,6 @@ static inline int steal_from(struct steal_request *req, int worker)
 }
 #endif // STEAL_LASTVICTIM || STEAL_LASTTHIEF
 
-static inline void UPDATE(void);
 static inline void try_send_steal_request(bool);
 static inline void decline_steal_request(struct steal_request *);
 static inline void decline_all_steal_requests(void);
@@ -499,7 +498,9 @@ static inline bool RECV_REQ(struct steal_request *req)
 	return ret;
 }
 
-static inline bool RECV_TASK(Task **task)
+#include "overload_RECV_TASK.h"
+
+static inline bool RECV_TASK(Task **task, bool idle)
 {
 	bool ret;
 	int i;
@@ -514,11 +515,14 @@ static inline bool RECV_TASK(Task **task)
 		}
 	}
 
-#if MAXSTEAL > 2
-	if (!ret) try_send_steal_request(true);
-#endif
+	if (!ret) try_send_steal_request(/* idle = */ idle);
 
 	return ret;
+}
+
+static inline bool RECV_TASK(Task **task)
+{
+	return RECV_TASK(task, true);
 }
 
 // Termination detection
@@ -708,18 +712,16 @@ ASYNC_ACTION(notify_workers)
 	tasking_finished = true;
 }
 
-// Send steal request when number of local tasks <= REQ_THRESHOLD
-// Steal requests are always sent before actually running out of tasks.
-// REQ_THRESHOLD == 0 means that we send a steal request just _before_ we
-// start executing the last task in the queue.
-#define REQ_THRESHOLD 0
-
-static inline void UPDATE(void)
+// Try to send a steal request
+// Every worker can have at most MAXSTEAL pending steal requests. A steal
+// request with idle == false indicates that the requesting worker is still
+// busy working on some tasks. A steal request with idle == true indicates that
+// the requesting worker is in fact idle and has nothing to work on.
+static inline void try_send_steal_request(bool idle)
 {
-	if (num_workers == 1)
-		return;
+	PROFILE(SEND_RECV_REQ) {
 
-	if (deque_list_tl_num_tasks(deque) <= REQ_THRESHOLD) {
+	if (requested < MAXSTEAL) {
 #ifdef STEAL_ADAPTIVE
 		// Estimate work-stealing efficiency during the last interval
 		// If the value is below a threshold, switch strategies
@@ -731,17 +733,6 @@ static inline void UPDATE(void)
 			num_steals_exec_recently = 0;
 		}
 #endif
-		try_send_steal_request(false);
-	}
-}
-
-// A steal request with idle == false indicates that the requesting worker is
-// still busy working on some tasks.
-static inline void try_send_steal_request(bool idle)
-{
-	PROFILE(SEND_RECV_REQ) {
-
-	if (requested < MAXSTEAL) {
 		assert(requested + channel_stack_top == MAXSTEAL);
 		struct steal_request req = STEAL_REQUEST_INIT;
 		req.state = idle ? STATE_IDLE : STATE_WORKING;
@@ -931,6 +922,12 @@ static inline void decline_all_steal_requests(void)
 	PROFILE_START(IDLE);
 }
 
+#ifdef STEAL_EARLY
+#ifndef STEAL_EARLY_THRESHOLD
+#define STEAL_EARLY_THRESHOLD 0
+#endif
+#endif
+
 static void handle_steal_request(struct steal_request *req)
 {
 	Task *task;
@@ -941,8 +938,12 @@ static void handle_steal_request(struct steal_request *req)
 		long tasks_left = task && task->is_loop ? abs(task->end - task->cur) : 0;
 		// Got own steal request
 		// Forget about it if we have more tasks than previously
-		if (deque_list_tl_num_tasks(deque) > REQ_THRESHOLD ||
-			tasks_left > REQ_THRESHOLD) {
+#ifdef STEAL_EARLY
+		if (deque_list_tl_num_tasks(deque) > STEAL_EARLY_THRESHOLD ||
+			tasks_left > STEAL_EARLY_THRESHOLD) {
+#else
+		if (deque_list_tl_num_tasks(deque) > 0 || tasks_left > 0) {
+#endif
 			FORGET_REQ(req);
 			return;
 		} else {
@@ -1066,7 +1067,7 @@ void *schedule(UNUSED(void *args))
 		}
 
 		// (2) Work-stealing request
-		try_send_steal_request(true);
+		try_send_steal_request(/* idle = */ true);
 		assert(requested);
 
 		PROFILE(IDLE) {
@@ -1107,8 +1108,6 @@ void *schedule(UNUSED(void *args))
 #ifdef STEAL_BACKOFF
 		steal_backoff_usec = STEAL_BACKOFF_BASE;
 #endif
-		//TODO Figure out at which points updates are reasonable
-		//UPDATE();
 #ifdef STEAL_ADAPTIVE
 		num_steals_exec_recently++;
 #endif
@@ -1160,7 +1159,7 @@ empty_local_queue:
 	}
 #endif
 
-	try_send_steal_request(true);
+	try_send_steal_request(/* idle = */ true);
 	assert(requested);
 
 	PROFILE(IDLE) {
@@ -1201,8 +1200,6 @@ empty_local_queue:
 #endif
 	requested--;
 	assert(0 <= requested && requested < MAXSTEAL);
-	//TODO Figure out at which points updates are reasonable
-	//UPDATE();
 #ifdef STEAL_ADAPTIVE
 	num_steals_exec_recently++;
 #endif
@@ -1246,14 +1243,14 @@ void RT_force_future(lazy_future *f, void *data, unsigned int size)
 	assert(get_current_task() == this);
 
 	while (!READY) {
-		try_send_steal_request(false);
+		try_send_steal_request(/* idle = */ false);
 		PROFILE(IDLE) {
 
-		while (!RECV_TASK(&task)) {
+		while (!RECV_TASK(&task, /* idle = */ false)) {
 			// We might inadvertently remove our own steal request in
 			// handle_steal_request, so:
 			PROFILE_STOP(IDLE);
-			try_send_steal_request(false);
+			try_send_steal_request(/* idle = */ false);
 			// Check if someone requested to steal from us
 			while (RECV_REQ(&req))
 				handle_steal_request(&req);
@@ -1283,8 +1280,6 @@ void RT_force_future(lazy_future *f, void *data, unsigned int size)
 #endif
 		requested--;
 		assert(0 <= requested && requested < MAXSTEAL);
-		//TODO Figure out at which points updates are reasonable
-		//UPDATE();
 #ifdef STEAL_ADAPTIVE
 		num_steals_exec_recently++;
 #endif
@@ -1317,32 +1312,34 @@ void RT_force_future(Channel *chan, void *data, unsigned int size)
 
 	assert(channel_impl(chan) == SPSC);
 
-	if (channel_receive(chan, data, size))
+#define READY (channel_receive(chan, data, size))
+
+	if (READY)
 		goto RT_force_future_return;
 
 	while ((task = pop_child()) != NULL) {
 		PROFILE(RUN_TASK) run_task(task);
 		PROFILE(ENQ_DEQ_TASK) deque_list_tl_task_cache(deque, task);
-		if (channel_receive(chan, data, size))
+		if (READY)
 			goto RT_force_future_return;
 	}
 
 	assert(get_current_task() == this);
 
-	while (!channel_receive(chan, data, size)) {
-		try_send_steal_request(false);
+	while (!READY) {
+		try_send_steal_request(/* idle = */ false);
 		PROFILE(IDLE) {
 
-		while (!RECV_TASK(&task)) {
+		while (!RECV_TASK(&task, /* idle = */ false)) {
 			// We might inadvertently remove our own steal request in
 			// handle_steal_request, so:
 			PROFILE_STOP(IDLE);
-			try_send_steal_request(false);
+			try_send_steal_request(/* idle = */ false);
 			// Check if someone requested to steal from us
 			while (RECV_REQ(&req))
 				handle_steal_request(&req);
 			PROFILE_START(IDLE);
-			if (channel_receive(chan, data, size)) {
+			if (READY) {
 				PROFILE_STOP(IDLE);
 				goto RT_force_future_return;
 			}
@@ -1367,8 +1364,6 @@ void RT_force_future(Channel *chan, void *data, unsigned int size)
 #endif
 		requested--;
 		assert(0 <= requested && requested < MAXSTEAL);
-		//TODO Figure out at which points updates are reasonable
-		//UPDATE();
 #ifdef STEAL_ADAPTIVE
 		num_steals_exec_recently++;
 #endif
@@ -1400,6 +1395,22 @@ void push(Task *task)
 	PROFILE_START(ENQ_DEQ_TASK);
 }
 
+#ifdef STEAL_EARLY
+
+// Try to send a steal request when number of local tasks <= STEAL_EARLY_THRESHOLD
+static inline void try_steal(void)
+{
+	if (num_workers == 1)
+		return;
+
+	if (deque_list_tl_num_tasks(deque) <= STEAL_EARLY_THRESHOLD) {
+		// By definition not yet idle
+		try_send_steal_request(/* idle = */ false);
+	}
+}
+
+#endif // STEAL_EARLY
+
 Task *pop(void)
 {
 	struct steal_request req;
@@ -1413,9 +1424,14 @@ Task *pop(void)
 	if (!task) HAVE_NO_TASKS();
 #endif
 
-	if ((task && !task->is_loop) || !task) {
-		UPDATE();
+	// Sending an idle steal request at this point may lead to termination
+	// detection when we're about to quit! Steal requests with idle == false are okay.
+
+#ifdef STEAL_EARLY
+	if (task && !task->is_loop) {
+		try_steal();
 	}
+#endif
 
 	// Check if someone requested to steal from us
 	while (RECV_REQ(&req)) {
@@ -1444,9 +1460,11 @@ Task *pop_child(void)
 		task = deque_list_tl_pop_child(deque, get_current_task());
 	}
 
-	if ((task && !task->is_loop) || !task) {
-		UPDATE();
+#ifdef STEAL_EARLY
+	if (task && !task->is_loop) {
+		try_steal();
 	}
+#endif
 
 	// Check if someone requested to steal from us
 	while (RECV_REQ(&req)) {
