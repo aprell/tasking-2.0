@@ -858,13 +858,17 @@ static inline void decline_steal_request(struct steal_request *req)
 	MANAGER {
 		if (req->try == MAX_STEAL_ATTEMPTS+1) {
 			req->try = 0;
+		} else {
+			req->try++;
 		}
+	} else {
+		assert(req->try < MAX_STEAL_ATTEMPTS+1);
+		req->try++;
 	}
 
 	PROFILE(SEND_RECV_REQ) {
 
 	requests_declined++;
-	req->try++;
 
 	assert(req->try <= MAX_STEAL_ATTEMPTS+1);
 
