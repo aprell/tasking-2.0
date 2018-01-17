@@ -88,8 +88,7 @@ bool quicksort_seq(int left, int right)
 
 bool quicksort(int, int);
 
-FUTURE_DECL_FREELIST(bool);
-FUTURE_DECL(bool, quicksort, int left; int right, left, right);
+DEFINE_FUTURE(bool, quicksort, (int, int));
 
 bool quicksort(int left, int right)
 {
@@ -119,10 +118,10 @@ bool quicksort(int left, int right)
 	// Move pivot to its final place
 	swap(A, left, last);
 
-	is_sorted = __ASYNC(quicksort, left, last - 1);
+	is_sorted = FUTURE(quicksort, (left, last - 1));
 	quicksort(last + 1, right);
 
-	return __AWAIT(is_sorted, bool);
+	return AWAIT(is_sorted, bool);
 }
 
 static void verify_result(void)

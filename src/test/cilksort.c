@@ -391,12 +391,12 @@ bool cilksort_seq(ELM *low, ELM *tmp, long size)
 
 bool cilkmerge(ELM *, ELM *, ELM *, ELM *, ELM *);
 
-TUPLE_DECL(bool);
-FUTURE_DECL_FREELIST(bool);
-
-// NOTE: FUTURE_DECL does not expand bool before pasting it with other tokens
+#if 0
 FUTURE_DECL(_Bool, cilkmerge, ELM *low1; ELM *high1; ELM *low2; ELM *high2; ELM *lowdest,
 		    low1, high1, low2, high2, lowdest);
+#endif
+
+DEFINE_FUTURE(bool, cilkmerge, (ELM *, ELM *, ELM *, ELM *, ELM *));
 
 bool cilkmerge(ELM *low1, ELM *high1, ELM *low2, ELM *high2, ELM *lowdest)
 {
@@ -451,16 +451,15 @@ bool cilkmerge(ELM *low1, ELM *high1, ELM *low2, ELM *high2, ELM *lowdest)
       */
      *(lowdest + lowsize + 1) = *split1;
 
-	 future merge_low  = __ASYNC(cilkmerge, low1, split1 - 1, low2, split2, lowdest);
-	 future merge_high = __ASYNC(cilkmerge, split1 + 1, high1, split2 + 1, high2, lowdest + lowsize + 2);
+	 future merge_low  = FUTURE(cilkmerge, (low1, split1 - 1, low2, split2, lowdest));
+	 future merge_high = FUTURE(cilkmerge, (split1 + 1, high1, split2 + 1, high2, lowdest + lowsize + 2));
 
-     return __AWAIT(merge_high, bool) && __AWAIT(merge_low, bool);
+     return AWAIT(merge_high, bool) && AWAIT(merge_low, bool);
 }
 
 bool cilksort(ELM *, ELM *, long);
 
-// NOTE: FUTURE_DECL does not expand bool before pasting it with other tokens
-FUTURE_DECL(_Bool, cilksort, ELM *low; ELM *tmp; long size, low, tmp, size);
+DEFINE_FUTURE(bool, cilksort, (ELM *, ELM *, long));
 
 bool cilksort(ELM *low, ELM *tmp, long size)
 {
@@ -488,43 +487,28 @@ bool cilksort(ELM *low, ELM *tmp, long size)
      D = C + quarter;
      tmpD = tmpC + quarter;
 
-     //future q1 = __ASYNC(cilksort, A, tmpA, quarter);
-     //future q2 = __ASYNC(cilksort, B, tmpB, quarter);
-     //future q3 = __ASYNC(cilksort, C, tmpC, quarter);
-     //future q4 = __ASYNC(cilksort, D, tmpD, size - 3 * quarter);
+	 bool a, b, c, d;
 
-	 //__AWAIT(q4, bool);
-	 //__AWAIT(q3, bool);
-	 //__AWAIT(q2, bool);
-	 //__AWAIT(q1, bool);
+	 AWAIT_ALL {
+		FUTURE(cilksort, (A, tmpA, quarter), &a);
+		FUTURE(cilksort, (B, tmpB, quarter), &b);
+		FUTURE(cilksort, (C, tmpC, quarter), &c);
+		FUTURE(cilksort, (D, tmpD, size - 3 * quarter), &d);
+	 }
 
-	 __AWAIT (
-		__ASYNC(cilksort, A, tmpA, quarter),
-		__ASYNC(cilksort, B, tmpB, quarter),
-		__ASYNC(cilksort, C, tmpC, quarter),
-		__ASYNC(cilksort, D, tmpD, size - 3 * quarter),
-		bool
-	 );
+	 assert(a && b && c && d);
 
-     //future m1 = __ASYNC(cilkmerge, A, A + quarter - 1, B, B + quarter - 1, tmpA);
-     //future m2 = __ASYNC(cilkmerge, C, C + quarter - 1, D, low + size - 1, tmpC);
+     AWAIT_ALL {
+		FUTURE(cilkmerge, (A, A + quarter - 1, B, B + quarter - 1, tmpA), &a);
+		FUTURE(cilkmerge, (C, C + quarter - 1, D, low + size - 1, tmpC), &b);
+	 }
 
-	 //__AWAIT(m2, bool);
-	 //__AWAIT(m1, bool);
+	 assert(a && b);
 
-     __AWAIT (
-		__ASYNC(cilkmerge, A, A + quarter - 1, B, B + quarter - 1, tmpA),
-		__ASYNC(cilkmerge, C, C + quarter - 1, D, low + size - 1, tmpC),
-		bool
-	 );
-
-     //future m = __ASYNC(cilkmerge, tmpA, tmpC - 1, tmpC, tmpA + size - 1, A);
-
-	 //return __AWAIT(m, bool);
-
-	 return __AWAIT(__ASYNC(cilkmerge, tmpA, tmpC - 1, tmpC, tmpA + size - 1, A), bool);
+	 return AWAIT(FUTURE(cilkmerge, (tmpA, tmpC - 1, tmpC, tmpA + size - 1, A)), bool);
 }
 
+#if 0
 bool cilkmerge_spawn(ELM *, ELM *, ELM *, ELM *, ELM *);
 
 TASK_DECL(bool, cilkmerge_spawn, ELM *low1; ELM *high1; ELM *low2; ELM *high2; ELM *lowdest,
@@ -643,6 +627,7 @@ bool cilksort_spawn(ELM *low, ELM *tmp, long size)
 
 	 return true;
 }
+#endif
 
 void scramble_array(ELM *arr, unsigned long size)
 {
