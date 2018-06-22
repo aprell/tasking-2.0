@@ -17,6 +17,12 @@ INCLUDE += -Ichannel_shm
 CFLAGS += -pthread
 LDFLAGS += -pthread
 
+ifeq ($(SANITIZE),1)
+  SANITIZE := -fsanitize=address,undefined
+  CFLAGS += $(SANITIZE)
+  LDFLAGS += $(SANITIZE)
+endif
+
 # Profile with coz run --- ./prog args
 ifeq ($(USE_COZ),1)
   COZ_ROOT := $(HOME)/github/coz
