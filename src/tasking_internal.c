@@ -146,7 +146,7 @@ extern PRIVATE unsigned int tasks_split;
 #ifdef STEAL_BACKOFF
 extern PRIVATE unsigned int requests_resent;
 #endif
-#ifdef STEAL_ADAPTIVE
+#if STEAL == adaptive
 extern PRIVATE unsigned int requests_steal_one, requests_steal_half;
 #endif
 #ifdef LAZY_FUTURES
@@ -173,7 +173,7 @@ int tasking_internal_statistics(void)
 #ifdef STEAL_BACKOFF
 	printf("Worker %d: %u steal requests resent\n", ID, requests_resent);
 #endif
-#ifdef STEAL_ADAPTIVE
+#if STEAL == adaptive
 	assert(requests_steal_one + requests_steal_half == requests_sent);
 	printf("Worker %d: %.2f %% steal-one\n", ID, requests_sent > 0
 			? ((double)requests_steal_one/requests_sent) * 100

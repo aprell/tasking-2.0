@@ -20,12 +20,6 @@ UTEST_MAIN() {}
 #include "partition.h"
 #include "partition.c"
 
-// Supported loop-splitting strategies (-DSPLIT=[half|guided|adaptive])
-// Default is split-half (-DSPLIT=half)
-#define half 0
-#define guided 1
-#define adaptive 2
-
 #define LOG(...) { printf(__VA_ARGS__); fflush(stdout); }
 #define UNUSED(x) x __attribute__((unused))
 
@@ -98,14 +92,14 @@ struct steal_request {
 	int rounds;		// worker backs off after n rounds of failed stealing
 #endif
 	state_t state;  // state of steal request and, by extension, requesting worker
-#ifdef STEAL_ADAPTIVE
+#if STEAL == adaptive
 	bool stealhalf; // true ? attempt steal-half : attempt steal-one
 #endif
-#if defined STEAL_BACKOFF && defined STEAL_ADAPTIVE
+#if defined STEAL_BACKOFF && STEAL == adaptive
 	char __[2];	    // pad to cache line
 #elif defined STEAL_BACKOFF
 	char __[3];     // pad to cache line
-#elif defined STEAL_ADAPTIVE
+#elif STEAL == adaptive
 	char __[6];     // pad to cache line
 #else
 	char __[7];     // pad to cache line
@@ -118,7 +112,7 @@ struct steal_request {
 #define STEAL_REQUEST_INIT_rounds
 #endif
 
-#ifdef STEAL_ADAPTIVE
+#if STEAL == adaptive
 #define STEAL_REQUEST_INIT_stealhalf , .stealhalf = stealhalf
 #else
 #define STEAL_REQUEST_INIT_stealhalf
@@ -138,7 +132,7 @@ struct steal_request {
 
 static inline void print_steal_req(struct steal_request *req)
 {
-#ifdef STEAL_ADAPTIVE
+#if STEAL == adaptive
 	LOG("{ .ID = %d, .try = %d, .partition = %d, .pID = %d, .state = %d, .stealhalf = %s }\n",
 		req->ID, req->try, req->partition, req->pID, req->state, req->stealhalf ? "true" : "false");
 #else
@@ -639,7 +633,7 @@ static inline void detect_termination(void)
 	}
 }
 
-#ifdef STEAL_ADAPTIVE
+#if STEAL == adaptive
 // Number of steals after which the current strategy is reevaluated
 #ifndef STEAL_ADAPTIVE_INTERVAL
 #define STEAL_ADAPTIVE_INTERVAL 25
@@ -686,7 +680,7 @@ static ASYNC_ACTION(ack_termination)
 	assert(requested < MAXSTEAL);
 	assert(!quiescent);
 	quiescent = true;
-#ifdef STEAL_ADAPTIVE
+#if STEAL == adaptive
 	num_steals_exec_recently--;
 #endif
 	num_tasks_exec--;
@@ -722,7 +716,7 @@ static inline void try_send_steal_request(bool idle)
 	PROFILE(SEND_RECV_REQ) {
 
 	if (requested < MAXSTEAL) {
-#ifdef STEAL_ADAPTIVE
+#if STEAL == adaptive
 		// Estimate work-stealing efficiency during the last interval
 		// If the value is below a threshold, switch strategies
 		if (num_steals_exec_recently == STEAL_ADAPTIVE_INTERVAL) {
@@ -751,7 +745,7 @@ static inline void try_send_steal_request(bool idle)
 #endif
 		requested++;
 		requests_sent++;
-#ifdef STEAL_ADAPTIVE
+#if STEAL == adaptive
 		stealhalf == true ?  requests_steal_half++ : requests_steal_one++;
 #endif
 	}
@@ -799,7 +793,7 @@ static inline void resend_steal_request(void)
 	steal_backoff_usec *= STEAL_BACKOFF_MULTIPLIER;
 	requests_resent++;
 	requests_sent++;
-#ifdef STEAL_ADAPTIVE
+#if STEAL == adaptive
 	stealhalf == true ?  requests_steal_half++ : requests_steal_one++;
 #endif
 
@@ -827,7 +821,7 @@ static inline void decline_steal_request(struct steal_request *req)
 	} else {
 #ifdef STEAL_BACKOFF
 		if (req->state == STATE_IDLE && ++req->rounds == STEAL_BACKOFF_ROUNDS) {
-#ifdef STEAL_ADAPTIVE
+#if STEAL == adaptive
 			req->stealhalf = stealhalf = false;
 			num_steals_exec_recently = 0;
 			num_tasks_exec_recently = 0;
@@ -881,7 +875,7 @@ static inline void decline_steal_request(struct steal_request *req)
 	} else {
 #ifdef STEAL_BACKOFF
 		if (ID != MASTER_ID && req->state == STATE_REG_IDLE && ++req->rounds == STEAL_BACKOFF_ROUNDS) {
-#ifdef STEAL_ADAPTIVE
+#if STEAL == adaptive
 			req->stealhalf = stealhalf = false;
 			num_steals_exec_recently = 0;
 			num_tasks_exec_recently = 0;
@@ -981,13 +975,13 @@ static void handle_steal_request(struct steal_request *req)
 
 	PROFILE(ENQ_DEQ_TASK) {
 
-#ifdef STEAL_ADAPTIVE
+#if STEAL == adaptive
 	if (req->stealhalf) {
 		task = deque_list_tl_steal_half(deque, &loot);
 	} else {
 		task = deque_list_tl_steal(deque);
 	}
-#elif defined STEAL_HALF
+#elif STEAL == half
 	task = deque_list_tl_steal_half(deque, &loot);
 #else // Default is steal-one
 	task = deque_list_tl_steal(deque);
@@ -1121,7 +1115,7 @@ void *schedule(UNUSED(void *args))
 #ifdef STEAL_BACKOFF
 		steal_backoff_usec = STEAL_BACKOFF_BASE;
 #endif
-#ifdef STEAL_ADAPTIVE
+#if STEAL == adaptive
 		num_steals_exec_recently++;
 #endif
 		PROFILE(RUN_TASK) run_task(task);
@@ -1213,7 +1207,7 @@ empty_local_queue:
 #endif
 	requested--;
 	assert(0 <= requested && requested < MAXSTEAL);
-#ifdef STEAL_ADAPTIVE
+#if STEAL == adaptive
 	num_steals_exec_recently++;
 #endif
 	PROFILE(RUN_TASK) run_task(task);
@@ -1305,7 +1299,7 @@ void RT_force_future(Channel *chan, void *data, unsigned int size)
 #endif
 		requested--;
 		assert(0 <= requested && requested < MAXSTEAL);
-#ifdef STEAL_ADAPTIVE
+#if STEAL == adaptive
 		num_steals_exec_recently++;
 #endif
 		PROFILE(RUN_TASK) run_task(task);
