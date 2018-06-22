@@ -17,6 +17,15 @@ INCLUDE += -Ichannel_shm
 CFLAGS += -pthread
 LDFLAGS += -pthread
 
+# Profile with coz run --- ./prog args
+ifeq ($(USE_COZ),1)
+  COZ_ROOT := $(HOME)/github/coz
+  CPPFLAGS += -DUSE_COZ
+  CFLAGS += -g
+  INCLUDE += -I$(COZ_ROOT)/include
+  IMPORTS += -ldl
+endif
+
 channel_SRCS = \
 channel.c
 

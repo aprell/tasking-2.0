@@ -8,6 +8,9 @@
 #include "platform.h"
 #include "atomic.h"
 #include "task.h"
+#ifdef USE_COZ
+#include "coz.h"
+#endif
 
 #define MASTER_ID 0
 #define MASTER if (ID == MASTER_ID)
@@ -112,6 +115,10 @@ static inline void run_task(Task *task)
 		num_tasks_exec_recently++;
 #endif
 	}
+
+#ifdef USE_COZ
+	COZ_PROGRESS_NAMED("task executed");
+#endif
 }
 
 int tasking_internal_init(int *, char ***);
