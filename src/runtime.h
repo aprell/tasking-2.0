@@ -42,4 +42,9 @@ bool RT_loop_split(void);
 // For user code: poll for incoming steal requests and handle them if possible
 int RT_check_for_steal_requests(void);
 
+// Convenience macro
+// Example: Polling on loop back edges with
+// for (i = 0; i < n; i++, POLL()) ...
+#define POLL() (void)RT_check_for_steal_requests()
+
 #endif // RUNTIME_H
