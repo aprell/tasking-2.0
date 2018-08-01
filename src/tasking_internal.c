@@ -140,6 +140,7 @@ PROFILE_EXTERN_DECL(SEND_RECV_TASK);
 PROFILE_EXTERN_DECL(SEND_RECV_REQ);
 PROFILE_EXTERN_DECL(IDLE);
 
+extern PRIVATE unsigned int updates_received;
 extern PRIVATE unsigned int requests_sent, requests_handled;
 extern PRIVATE unsigned int requests_declined, tasks_sent;
 extern PRIVATE unsigned int tasks_split;
@@ -164,6 +165,7 @@ int tasking_internal_statistics(void)
 
 	tasking_internal_barrier();
 
+	MASTER printf("Worker %d: %u updates received\n", ID, updates_received);
 	printf("Worker %d: %u steal requests sent\n", ID, requests_sent);
 	printf("Worker %d: %u steal requests handled\n", ID, requests_handled);
 	printf("Worker %d: %u steal requests declined\n", ID, requests_declined);

@@ -14,7 +14,6 @@ UTEST_MAIN() {}
 #include "wtime.h"
 #endif
 
-#define MANAGER	if (is_manager)
 #define MAXNP 256
 #define PARTITIONS 1
 #include "partition.h"
@@ -225,8 +224,8 @@ static void init_victims(int ID)
 	// send steal requests ahead of time.
 	my_victims[j] = ID;
 
-	MANAGER LOG("Manager %2d: %d of %d workers available\n", ID,
-			my_partition->num_workers_rt, my_partition->num_workers);
+	MASTER LOG("Manager %2d: %d of %d workers available\n", ID,
+		   my_partition->num_workers_rt, my_partition->num_workers);
 }
 
 static PRIVATE unsigned int seed;
@@ -278,6 +277,7 @@ PROFILE_DECL(SEND_RECV_TASK);
 PROFILE_DECL(SEND_RECV_REQ);
 PROFILE_DECL(IDLE);
 
+PRIVATE unsigned int updates_received;
 PRIVATE unsigned int requests_sent, requests_handled;
 PRIVATE unsigned int requests_declined, tasks_sent;
 PRIVATE unsigned int tasks_split;
@@ -295,14 +295,16 @@ int RT_init(void)
 
 	int i;
 
-#define MANAGER_ID 0
-
-	PARTITION_ASSIGN_xlarge(MANAGER_ID);
+	PARTITION_ASSIGN_xlarge(MASTER_ID);
 	PARTITION_SET();
+
+	if (is_manager) {
+		assert(ID == MASTER_ID);
+	}
 
 	deque = deque_list_tl_new();
 
-	MANAGER {
+	MASTER {
 		// Unprocessed update message followed by new steal request
 		// => up to two messages per worker (assuming MAXSTEAL == 1)
 		chan_requests[ID] = channel_alloc(sizeof(struct steal_request), MAXSTEAL * num_workers * 2, MPSC);
@@ -455,7 +457,7 @@ static inline bool RECV_REQ(struct steal_request *req)
 	PROFILE(SEND_RECV_REQ) {
 		ret = channel_receive(chan_requests[ID], req, sizeof(*(req)));
 #ifndef DISABLE_MANAGER
-		MANAGER {
+		MASTER {
 			assert(ID == MASTER_ID);
 			// Deal with updates
 			while (ret && req->state == STATE_UPDATE) {
@@ -528,7 +530,7 @@ do { \
 do { \
 	assert((req)->state == STATE_REG_IDLE); \
 	(req)->state = STATE_UPDATE; \
-	MANAGER { \
+	MASTER { \
 		/* Elide message */ \
 		unregister_idle(req); \
 	} else { \
@@ -556,7 +558,6 @@ do { \
 
 static PRIVATE int workers_q[MAXNP];
 static PRIVATE int num_workers_q;
-static PRIVATE int notes;
 
 static inline void register_idle(struct steal_request *req)
 {
@@ -570,7 +571,7 @@ static inline void register_idle(struct steal_request *req)
 	assert(workers_q[req->pID] < MAXSTEAL);
 	workers_q[req->pID]++;
 	num_workers_q++;
-	notes++;
+	updates_received++;
 
 	assert(0 < num_workers_q && num_workers_q <= MAXSTEAL * my_partition->num_workers_rt);
 }
@@ -591,7 +592,7 @@ static inline void unregister_idle(struct steal_request *req)
 	workers_q[req->pID]--;
 	num_workers_q--;
 	quiescent = false;
-	notes++;
+	updates_received++;
 
 	assert(0 <= num_workers_q && num_workers_q < MAXSTEAL * my_partition->num_workers_rt);
 }
@@ -808,7 +809,7 @@ static inline void decline_steal_request(struct steal_request *req)
 // Pass it on to a different victim or send it back to manager
 static inline void decline_steal_request(struct steal_request *req)
 {
-	MANAGER {
+	MASTER {
 		if (req->try == MAX_STEAL_ATTEMPTS+1) {
 			req->try = 0;
 		} else {
@@ -1091,7 +1092,6 @@ int RT_schedule(void)
 {
 	schedule(NULL);
 
-	MANAGER LOG("Manager %d received %d notifications\n", ID, notes);
 
 	return 0;
 }
