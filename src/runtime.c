@@ -295,9 +295,7 @@ int RT_init(void)
 
 	int i;
 
-#ifndef MANAGER_ID
 #define MANAGER_ID 0
-#endif
 
 	PARTITION_ASSIGN_xlarge(MANAGER_ID);
 	PARTITION_SET();
@@ -449,7 +447,6 @@ do { \
 #define SEND_REQ_MANAGER(req)		SEND_REQ(chan_requests[my_partition->manager], req)
 
 static PRIVATE bool quiescent;
-static PRIVATE bool in_barrier;
 
 static inline bool RECV_REQ(struct steal_request *req)
 {
@@ -459,6 +456,7 @@ static inline bool RECV_REQ(struct steal_request *req)
 		ret = channel_receive(chan_requests[ID], req, sizeof(*(req)));
 #ifndef DISABLE_MANAGER
 		MANAGER {
+			assert(ID == MASTER_ID);
 			// Deal with updates
 			while (ret && req->state == STATE_UPDATE) {
 				unregister_idle(req);
@@ -469,22 +467,10 @@ static inline bool RECV_REQ(struct steal_request *req)
 				register_idle(req);
 				detect_termination();
 			}
-			// No special treatment for other states ...
+			// No special treatment for other states
 			assert((ret && req->state != STATE_IDLE)   || !ret);
 			assert((ret && req->state != STATE_UPDATE) || !ret);
-			MASTER ; else {
-			// ... except when we catch MASTER_ID's steal request in a barrier
-			if (ret && req->ID == MASTER_ID && req->state == STATE_REG_IDLE) {
-				if (in_barrier) {
-					// Fake an update
-					req->state = STATE_UPDATE;
-					unregister_idle(req);
-					assert(!quiescent);
-					assert(!in_barrier);
-					// Drop steal request!
-					ret = false;
-				}
-			}}
+			// No cancellation of steal requests required
 		}
 #endif
 	} // PROFILE
@@ -595,8 +581,7 @@ static void ack_termination(void);
 static inline void unregister_idle(struct steal_request *req)
 {
 #ifdef DEBUG_TD
-	LOG(">>> Worker %d unregisters worker %d %s\n", ID, req->ID,
-	    quiescent && in_barrier ? "after barrier" : "");
+	LOG(">>> Worker %d unregisters worker %d\n", ID, req->ID);
 #endif
 
 	assert(req->state == STATE_UPDATE);
@@ -606,14 +591,6 @@ static inline void unregister_idle(struct steal_request *req)
 	workers_q[req->pID]--;
 	num_workers_q--;
 	quiescent = false;
-	MASTER in_barrier = false;
-	MASTER ; else {
-		if (in_barrier && req->ID == MASTER_ID) {
-			// Only if master and manager are different workers
-			async_action(ack_termination, req->chan);
-			in_barrier = false;
-		}
-	}
 	notes++;
 
 	assert(0 <= num_workers_q && num_workers_q < MAXSTEAL * my_partition->num_workers_rt);
@@ -625,11 +602,10 @@ static inline void detect_termination(void)
 		quiescent = true;
 	}
 
-	if (quiescent && !in_barrier) {
+	if (quiescent) {
 #ifdef DEBUG_TD
 		LOG(">>> Worker %d detected termination <<<\n", ID);
 #endif
-		in_barrier = true;
 	}
 }
 
@@ -668,23 +644,6 @@ static void async_action(void (*fn)(void), Channel *chan)
 // Asynchronous actions are side-effecting pseudo-tasks
 
 #define ASYNC_ACTION(fn) void fn(void)
-
-// Notify the master that termination has occurred
-// => master can leave task barrier
-static ASYNC_ACTION(ack_termination)
-{
-#ifdef DEBUG_TD
-	LOG(">>> Worker %d acknowledges termination <<<\n", ID);
-#endif
-	assert(ID == MASTER_ID);
-	assert(requested < MAXSTEAL);
-	assert(!quiescent);
-	quiescent = true;
-#if STEAL == adaptive
-	num_steals_exec_recently--;
-#endif
-	num_tasks_exec--;
-}
 
 // Notify each other when it's time to shut down
 ASYNC_ACTION(notify_workers)
@@ -1152,7 +1111,6 @@ int RT_barrier(void)
 
 empty_local_queue:
 	while ((task = pop()) != NULL) {
-		assert(!quiescent);
 		PROFILE(RUN_TASK) run_task(task);
 		PROFILE(ENQ_DEQ_TASK) deque_list_tl_task_cache(deque, task);
 	}
@@ -1176,10 +1134,8 @@ empty_local_queue:
 		assert(requested);
 		decline_all_steal_requests();
 #ifndef DISABLE_MANAGER
-		MANAGER {
-			if (quiescent) {
-				goto RT_barrier_exit;
-			}
+		if (quiescent) {
+			goto RT_barrier_exit;
 		}
 #else
 		if (tasking_all_idle()) {
@@ -1215,9 +1171,8 @@ empty_local_queue:
 	goto empty_local_queue;
 
 RT_barrier_exit:
+	// Execution continues, but quiescent remains true
 	assert(quiescent);
-	// Execution continues
-	MANAGER ; else quiescent = false;
 
 #ifdef DEBUG_TD
 	LOG(">>> Worker %d leaves barrier <<<\n", ID);
