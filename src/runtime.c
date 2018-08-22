@@ -10,9 +10,6 @@
 #include "utest.h"
 UTEST_MAIN() {}
 #include "profile.h"
-#ifdef STEAL_BACKOFF
-#include "wtime.h"
-#endif
 
 #define MAXNP 256
 #define PARTITIONS 1
@@ -87,29 +84,14 @@ struct steal_request {
 	int try;	   	// 0 <= try <= num_workers_rt
 	int partition; 	// partition in which the steal request was initiated
 	int pID;		// ID of requesting worker within partition
-#ifdef STEAL_BACKOFF
-	int rounds;		// worker backs off after n rounds of failed stealing
-#endif
 	state_t state;  // state of steal request and, by extension, requesting worker
 #if STEAL == adaptive
 	bool stealhalf; // true ? attempt steal-half : attempt steal-one
-#endif
-#if defined STEAL_BACKOFF && STEAL == adaptive
-	char __[2];	    // pad to cache line
-#elif defined STEAL_BACKOFF
-	char __[3];     // pad to cache line
-#elif STEAL == adaptive
 	char __[6];     // pad to cache line
 #else
-	char __[7];     // pad to cache line
+	char __[7];	    // pad to cache line
 #endif
 };
-
-#ifdef STEAL_BACKOFF
-#define STEAL_REQUEST_INIT_rounds .rounds = 0,
-#else
-#define STEAL_REQUEST_INIT_rounds
-#endif
 
 #if STEAL == adaptive
 #define STEAL_REQUEST_INIT_stealhalf , .stealhalf = stealhalf
@@ -124,7 +106,6 @@ struct steal_request {
 	.try = 0, \
 	.partition = my_partition->number, \
 	.pID = pID, \
-	STEAL_REQUEST_INIT_rounds \
 	.state = STATE_WORKING \
 	STEAL_REQUEST_INIT_stealhalf \
 }
@@ -140,6 +121,7 @@ static inline void print_steal_req(struct steal_request *req)
 #endif
 }
 
+#if 0
 #ifdef STEAL_BACKOFF
 
 // Every worker has a backoff queue of steal requests
@@ -170,6 +152,7 @@ do { \
 	req; \
 })
 
+#endif
 #endif
 
 // A worker can have up to MAXSTEAL outstanding steal requests:
@@ -713,54 +696,6 @@ static inline void try_send_steal_request(bool idle)
 	} // PROFILE
 }
 
-#ifdef STEAL_BACKOFF
-
-#define STEAL_BACKOFF_BASE 100
-#define STEAL_BACKOFF_MULTIPLIER 2
-#define STEAL_BACKOFF_ROUNDS 1
-
-static PRIVATE int steal_backoff_usec = STEAL_BACKOFF_BASE;
-static PRIVATE double steal_backoff_intvl_start;
-static PRIVATE bool steal_backoff_waiting;
-static PRIVATE unsigned int steal_backoffs;
-PRIVATE unsigned int requests_resent;
-
-// Resend steal request after waiting steal_backoff_usec microseconds
-static inline void resend_steal_request(void)
-{
-	PROFILE(SEND_RECV_REQ) {
-
-	assert(0 < requested && requested <= MAXSTEAL);
-	assert(steal_backoff_waiting);
-
-	struct steal_request *req = BACKOFF_QUEUE_POP();
-
-#ifndef DISABLE_MANAGER
-	assert(req->state == STATE_REG_IDLE);
-#endif
-	req->try = 0;
-	req->rounds = 0;
-	//shuffle_victims();
-	//copy_victims();
-#ifdef STEAL_LASTVICTIM
-	SEND_REQ_WORKER(steal_from(req, last_victim), req);
-#elif defined STEAL_LASTTHIEF
-	SEND_REQ_WORKER(steal_from(req, last_thief), req);
-#else
-	SEND_REQ_WORKER(next_victim(req), req);
-#endif
-	steal_backoff_waiting = false;
-	steal_backoff_usec *= STEAL_BACKOFF_MULTIPLIER;
-	requests_resent++;
-	requests_sent++;
-#if STEAL == adaptive
-	stealhalf == true ?  requests_steal_half++ : requests_steal_one++;
-#endif
-
-	} // PROFILE
-}
-#endif // STEAL_BACKOFF
-
 #ifdef DISABLE_MANAGER
 
 static inline void decline_steal_request(struct steal_request *req)
@@ -779,25 +714,8 @@ static inline void decline_steal_request(struct steal_request *req)
 		//}
 		SEND_REQ_WORKER(next_victim(req), req);
 	} else {
-#ifdef STEAL_BACKOFF
-		if (req->state == STATE_IDLE && ++req->rounds == STEAL_BACKOFF_ROUNDS) {
-#if STEAL == adaptive
-			req->stealhalf = stealhalf = false;
-			num_steals_exec_recently = 0;
-			num_tasks_exec_recently = 0;
-#endif
-			BACKOFF_QUEUE_PUSH(req);
-			steal_backoff_intvl_start = Wtime_usec();
-			steal_backoff_waiting = true;
-			steal_backoffs++;
-		} else {
-			req->try = 0;
-			SEND_REQ_WORKER(next_victim(req), req);
-		}
-#else
 		req->try = 0;
 		SEND_REQ_WORKER(next_victim(req), req);
-#endif
 	}
 
 	} // PROFILE
@@ -827,27 +745,9 @@ static inline void decline_steal_request(struct steal_request *req)
 	assert(req->try <= MAX_STEAL_ATTEMPTS+1);
 
 	if (req->try < MAX_STEAL_ATTEMPTS+1) {
-		//if (my_partition->num_workers_rt > 2) {
-		//	if (ID == req->ID) print_steal_req(req);
-		//	assert(ID != req->ID);
-		//}
 		SEND_REQ_WORKER(next_victim(req), req);
 	} else {
-#ifdef STEAL_BACKOFF
-		if (ID != MASTER_ID && req->state == STATE_REG_IDLE && ++req->rounds == STEAL_BACKOFF_ROUNDS) {
-#if STEAL == adaptive
-			req->stealhalf = stealhalf = false;
-			num_steals_exec_recently = 0;
-			num_tasks_exec_recently = 0;
-#endif
-			BACKOFF_QUEUE_PUSH(req);
-			steal_backoff_intvl_start = Wtime_usec();
-			steal_backoff_waiting = true;
-			steal_backoffs++;
-		} else if (ID != MASTER_ID && req->state == STATE_REG_IDLE) {
-#else
 		if (ID != MASTER_ID && req->state == STATE_REG_IDLE) {
-#endif
 			// Don't bother manager; we are quiescent anyway
 			req->try = 0;
 			SEND_REQ_WORKER(next_victim(req), req);
@@ -1043,14 +943,6 @@ void *schedule(UNUSED(void *args))
 			assert(deque_list_tl_empty(deque));
 			assert(requested);
 			decline_all_steal_requests();
-#ifdef STEAL_BACKOFF
-			if (steal_backoff_waiting && (Wtime_usec() - steal_backoff_intvl_start >= steal_backoff_usec)) {
-				PROFILE_STOP(IDLE);
-				resend_steal_request();
-				PROFILE_START(IDLE);
-				assert(!steal_backoff_waiting);
-			}
-#endif
 		}
 
 		} // PROFILE
@@ -1072,9 +964,6 @@ void *schedule(UNUSED(void *args))
 #endif
 		requested--;
 		assert(0 <= requested && requested < MAXSTEAL);
-#ifdef STEAL_BACKOFF
-		steal_backoff_usec = STEAL_BACKOFF_BASE;
-#endif
 #if STEAL == adaptive
 		num_steals_exec_recently++;
 #endif
