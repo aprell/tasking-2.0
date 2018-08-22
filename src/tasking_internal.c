@@ -60,7 +60,14 @@ int tasking_internal_init(int *argc UNUSED, char ***argv UNUSED)
 
 	envval = getenv("NUM_THREADS");
 	if (envval) {
-		num_workers = abs(atoi(envval));
+		num_workers = atoi(envval);
+		if (num_workers <= 0) {
+			printf("NUM_THREADS must be > 0\n");
+			exit(0);
+		} else if (num_workers > MAXWORKERS) {
+			printf("NUM_THREADS is truncated to %d\n", MAXWORKERS);
+			num_workers = MAXWORKERS;
+		}
 	} else {
 		// May not be standard
 		num_workers = sysconf(_SC_NPROCESSORS_ONLN);

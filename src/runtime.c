@@ -11,7 +11,6 @@
 UTEST_MAIN() {}
 #include "profile.h"
 
-#define MAXNP 256
 #define PARTITIONS 1
 #include "partition.h"
 #include "partition.c"
@@ -23,10 +22,10 @@ UTEST_MAIN() {}
 static PRIVATE DequeListTL *deque;
 
 // Worker -> worker: intra-partition steal requests (MPSC)
-static Channel *chan_requests[MAXNP];
+static Channel *chan_requests[MAXWORKERS];
 
 // Worker -> worker: tasks (SPSC)
-static Channel *chan_tasks[MAXNP][MAXSTEAL];
+static Channel *chan_tasks[MAXWORKERS][MAXSTEAL];
 
 // Every worker needs to keep track of which channels it can use for the next
 // steal request
@@ -50,7 +49,7 @@ struct task_indicator {
 	char __[64 - sizeof(atomic_t)];
 };
 
-static struct task_indicator task_indicators[MAXNP];
+static struct task_indicator task_indicators[MAXWORKERS];
 
 #define LIKELY_HAS_TASKS(ID)    (atomic_read(&task_indicators[ID].tasks) > 0)
 #define HAVE_TASKS()             atomic_set(&task_indicators[ID].tasks, 1)
@@ -171,7 +170,7 @@ static PRIVATE int last_thief = -1;
 
 // Every worker keeps a list of victims that can be read by other workers
 // Shared state!
-static int *victims[MAXNP];
+static int *victims[MAXWORKERS];
 
 // Private copy of victims field
 static PRIVATE int *my_victims;
@@ -182,6 +181,7 @@ static PRIVATE int pID;
 
 static void init_victims(int ID)
 {
+	// 0 < num_workers <= MAXWORKERS = 256
 	int available_workers[num_workers];
 	int i, j;
 
@@ -304,8 +304,8 @@ int RT_init(void)
 
 	assert(channel_stack_top == MAXSTEAL);
 
-	victims[ID] = (int *)malloc(MAXNP * sizeof(int));
-	my_victims = (int *)malloc(MAXNP * sizeof(int));
+	victims[ID] = (int *)malloc(MAXWORKERS * sizeof(int));
+	my_victims = (int *)malloc(MAXWORKERS * sizeof(int));
 
 	ws_init();
 

@@ -21,6 +21,8 @@
 extern atomic_t *td_count;
 #endif
 
+#define MAXWORKERS 256
+
 extern int num_workers;
 
 // Private state
