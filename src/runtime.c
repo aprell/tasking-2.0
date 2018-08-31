@@ -63,19 +63,40 @@ static struct task_indicator task_indicators[MAXWORKERS];
 
 #endif // VICTIM_CHECK
 
-// Steal requests carry one of the following states:
-// - STATE_WORKING means the requesting worker is still busy
-// - STATE_IDLE means the requesting worker has run out of tasks
-// - STATE_REG_IDLE means the requesting worker is known to be idle
-// - STATE_UPDATE means the requesting worker is no longer idle because it
-//   received new tasks
+/*
+ * When a steal request is returned to its sender after MAX_STEAL_ATTEMPTS
+ * unsuccessful attempts, the steal request changes state to STATE_FAILED and
+ * is then passed on to parent_worker, which holds on to this request until it
+ * can send tasks in return. Thus, when a worker receives a steal request whose
+ * state is STATE_FAILED, the sender is either left_worker or right_worker. At
+ * this point, there is a "lifeline" between parent and child: the child will
+ * not send further steal requests (unless MAXSTEAL > 1) until it receives new
+ * work from its parent. We have switched from work stealing to work sharing.
+ * This also means that backing off from work stealing by withdrawing a steal
+ * request for a short while is no longer needed, as steal requests are
+ * withdrawn automatically.
+ *
+ * Termination occurs once worker 0 detects that both left and right subtrees
+ * of workers are idle and worker 0 is itself idle.
+ *
+ * When a worker receives new work, it must check its "lifelines" and try to
+ * distribute as many tasks as possible, thereby reactivating workers further
+ * down in the tree.
+ */
+
+/*
+ * Steal requests carry one of the following states:
+ * - STATE_WORKING means the requesting worker is still busy
+ * - STATE_IDLE means the requesting worker has run out of tasks
+ * - STATE_FAILED means the requesting worker backs off and waits for tasks
+ *   from its parent worker
+ */
 
 typedef unsigned char state_t;
 
 #define STATE_WORKING  0x00
 #define STATE_IDLE     0x02
-#define STATE_REG_IDLE 0x04
-#define STATE_UPDATE   0x08
+#define STATE_FAILED   0x04
 
 struct steal_request {
 	Channel *chan;  // channel for sending tasks
@@ -120,39 +141,43 @@ static inline void print_steal_req(struct steal_request *req)
 #endif
 }
 
-#if 0
-#ifdef STEAL_BACKOFF
-
-// Every worker has a backoff queue of steal requests
-
-#define BACKOFF_QUEUE_SIZE (MAXSTEAL + 1)
+#define BACKOFF_QUEUE_SIZE (2*MAXSTEAL + 1)
 
 static PRIVATE struct steal_request backoff_queue[BACKOFF_QUEUE_SIZE];
 static PRIVATE int backoff_queue_hd = 0, backoff_queue_tl = 0;
+static PRIVATE int backoff_queue_num_entries = 0;
 
-#define BACKOFF_QUEUE_EMPTY() \
-	(backoff_queue_hd == backoff_queue_tl)
+static inline bool BACKOFF_QUEUE_EMPTY(void)
+{
+	return backoff_queue_hd == backoff_queue_tl;
+}
 
-#define BACKOFF_QUEUE_FULL() \
-	((backoff_queue_tl + 1) % BACKOFF_QUEUE_SIZE == backoff_queue_hd)
+static inline bool BACKOFF_QUEUE_FULL(void)
+{
+	return (backoff_queue_tl + 1) % BACKOFF_QUEUE_SIZE == backoff_queue_hd;
+}
 
-#define BACKOFF_QUEUE_PUSH(req) \
-do { \
-	assert(!BACKOFF_QUEUE_FULL()); \
-	backoff_queue[backoff_queue_tl] = *(req); \
-	backoff_queue_tl = (backoff_queue_tl + 1) % BACKOFF_QUEUE_SIZE; \
-} while (0)
+static inline void BACKOFF_QUEUE_PUSH(struct steal_request *req)
+{
+	assert(!BACKOFF_QUEUE_FULL());
+	assert(backoff_queue_num_entries < BACKOFF_QUEUE_SIZE - 1);
 
-#define BACKOFF_QUEUE_POP() \
-({ \
-	assert(!BACKOFF_QUEUE_EMPTY()); \
-	struct steal_request *req = &backoff_queue[backoff_queue_hd]; \
-	backoff_queue_hd = (backoff_queue_hd + 1) % BACKOFF_QUEUE_SIZE; \
-	req; \
-})
+	backoff_queue[backoff_queue_tl] = *req;
+	backoff_queue_tl = (backoff_queue_tl + 1) % BACKOFF_QUEUE_SIZE;
+	backoff_queue_num_entries++;
+}
 
-#endif
-#endif
+static inline struct steal_request *BACKOFF_QUEUE_POP(void)
+{
+	assert(!BACKOFF_QUEUE_EMPTY());
+	assert(backoff_queue_num_entries > 0);
+
+	struct steal_request *req = &backoff_queue[backoff_queue_hd];
+	backoff_queue_hd = (backoff_queue_hd + 1) % BACKOFF_QUEUE_SIZE;
+	backoff_queue_num_entries--;
+
+	return req;
+}
 
 // A worker can have up to MAXSTEAL outstanding steal requests:
 // 0 <= requested <= MAXSTEAL
@@ -253,6 +278,40 @@ static int ws_init(void)
 	return 0;
 }
 
+static PRIVATE int left_worker = -1;
+static PRIVATE int right_worker = -1;
+static PRIVATE int parent_worker = -1;
+static PRIVATE int num_children = 0;
+
+static inline int left_child(int ID)
+// requires ID >= 0
+{
+	int child = 2*ID + 1;
+
+	return child < num_workers ? child : -1;
+}
+
+static inline int right_child(int ID)
+// requires ID >= 0
+{
+	int child = 2*ID + 2;
+
+	return child < num_workers ? child : -1;
+}
+
+static inline int parent(int ID)
+// requires ID >= 0
+// ensures ID == 0 ==> \result == -1
+// ensures ID > 0 ==> \result >= 0
+{
+	return ID % 2 != 0 ? (ID - 1) / 2 : (ID - 2) / 2;
+}
+
+static inline bool subtree_is_idle(UNUSED(int ID))
+{
+	return backoff_queue_num_entries == num_children * MAXSTEAL;
+}
+
 // To profile different parts of the runtime
 PROFILE_DECL(RUN_TASK);
 PROFILE_DECL(ENQ_DEQ_TASK);
@@ -260,7 +319,6 @@ PROFILE_DECL(SEND_RECV_TASK);
 PROFILE_DECL(SEND_RECV_REQ);
 PROFILE_DECL(IDLE);
 
-PRIVATE unsigned int updates_received;
 PRIVATE unsigned int requests_sent, requests_handled;
 PRIVATE unsigned int requests_declined, tasks_sent;
 PRIVATE unsigned int tasks_split;
@@ -322,6 +380,20 @@ int RT_init(void)
 	assert(sizeof(struct task_indicator) == 64);
 	atomic_set(&task_indicators[ID].tasks, 0);
 #endif
+
+	left_worker = left_child(ID);
+	if (left_worker != -1) num_children++;
+
+	right_worker = right_child(ID);
+	if (right_worker != -1) num_children++;
+
+	assert(left_worker != ID && right_worker != ID);
+	assert(0 <= num_children && num_children <= 2);
+
+	parent_worker = parent(ID);
+
+	MASTER assert(parent_worker == -1);
+	else assert(parent_worker >= 0);
 
 	PROFILE_INIT(RUN_TASK);
 	PROFILE_INIT(ENQ_DEQ_TASK);
@@ -404,15 +476,10 @@ static inline int steal_from(struct steal_request *req, int worker)
 }
 #endif // STEAL_LASTVICTIM || STEAL_LASTTHIEF
 
-static inline void try_send_steal_request(bool);
-static inline void decline_steal_request(struct steal_request *);
-static inline void decline_all_steal_requests(void);
-static inline void split_loop(Task *, struct steal_request *);
-
-// Termination detection
-static inline void register_idle(struct steal_request *);
-static inline void unregister_idle(struct steal_request *);
-static inline void detect_termination(void);
+static void try_send_steal_request(bool);
+static void decline_steal_request(struct steal_request *);
+static void decline_all_steal_requests(void);
+static void split_loop(Task *, struct steal_request *);
 
 #define SEND_REQ(chan, req) \
 do { \
@@ -431,33 +498,24 @@ do { \
 #define SEND_REQ_WORKER(ID, req)	SEND_REQ(chan_requests[ID], req)
 #define SEND_REQ_MANAGER(req)		SEND_REQ(chan_requests[my_partition->manager], req)
 
-static PRIVATE bool quiescent;
-
 static inline bool RECV_REQ(struct steal_request *req)
 {
 	bool ret;
 
 	PROFILE(SEND_RECV_REQ) {
-		ret = channel_receive(chan_requests[ID], req, sizeof(*(req)));
-#ifndef DISABLE_MANAGER
-		MASTER {
-			assert(ID == MASTER_ID);
-			// Deal with updates
-			while (ret && req->state == STATE_UPDATE) {
-				unregister_idle(req);
-				ret = channel_receive(chan_requests[ID], req, sizeof(*(req)));
-			}
-			// Check if worker is idle and if termination occurred
-			if (ret && req->state == STATE_IDLE) {
-				register_idle(req);
-				detect_termination();
-			}
-			// No special treatment for other states
-			assert((ret && req->state != STATE_IDLE)   || !ret);
-			assert((ret && req->state != STATE_UPDATE) || !ret);
-			// No cancellation of steal requests required
-		}
+		ret = channel_receive(chan_requests[ID], req, sizeof(*req));
+		while (ret && req->state == STATE_FAILED) {
+#ifdef DEBUG_TD
+			LOG("Worker %d receives STATE_FAILED from worker %d\n", ID, req->ID);
 #endif
+			assert(req->ID == left_worker || req->ID == right_worker);
+			assert(req->try == MAX_STEAL_ATTEMPTS+1);
+			// Hold on to this steal request
+			BACKOFF_QUEUE_PUSH(req);
+			ret = channel_receive(chan_requests[ID], req, sizeof(*req));
+		}
+		// No special treatment for other states
+		assert((ret && req->state != STATE_FAILED) || !ret);
 	} // PROFILE
 
 	return ret;
@@ -490,119 +548,29 @@ static inline bool RECV_TASK(Task **task)
 	return RECV_TASK(task, true);
 }
 
-// Termination detection
-
-#ifdef DISABLE_MANAGER
-
-#define NOTIFY_MANAGER(req) \
-do { \
-	assert((req)->state == STATE_IDLE); \
-	atomic_dec(td_count); \
-} while (0)
-
-#define CHECK_NOTIFY_MANAGER(req) \
-do { \
-	if ((req)->state == STATE_IDLE) { \
-		NOTIFY_MANAGER(req); \
-	} \
-} while (0)
-
-#else
-
-#define NOTIFY_MANAGER(req) \
-do { \
-	assert((req)->state == STATE_REG_IDLE); \
-	(req)->state = STATE_UPDATE; \
-	MASTER { \
-		/* Elide message */ \
-		unregister_idle(req); \
-	} else { \
-		PROFILE(SEND_RECV_REQ) SEND_REQ_MANAGER(req); \
-	} \
-} while (0)
-
-#define CHECK_NOTIFY_MANAGER(req) \
-do { \
-	if ((req)->state == STATE_REG_IDLE) { \
-		NOTIFY_MANAGER(req); \
-	} \
-} while (0)
-
-#endif // DISABLE_MANAGER
-
 #define FORGET_REQ(req) \
 do { \
 	assert((req)->ID == ID); \
-	CHECK_NOTIFY_MANAGER(req); \
 	assert(requested); \
 	requested--; \
 	CHANNEL_PUSH((req)->chan); \
 } while (0)
 
-static PRIVATE int workers_q[MAXNP];
-static PRIVATE int num_workers_q;
-
-static inline void register_idle(struct steal_request *req)
-{
-	assert(req->state == STATE_IDLE);
-	req->state = STATE_REG_IDLE;
-
-#ifdef DEBUG_TD
-	LOG(">>> Worker %d registers worker %d <<<\n", ID, req->ID);
-#endif
-
-	assert(workers_q[req->pID] < MAXSTEAL);
-	workers_q[req->pID]++;
-	num_workers_q++;
-	updates_received++;
-
-	assert(0 < num_workers_q && num_workers_q <= MAXSTEAL * my_partition->num_workers_rt);
-}
-
-static void async_action(void (*)(void), Channel *);
-static void ack_termination(void);
-
-static inline void unregister_idle(struct steal_request *req)
-{
-#ifdef DEBUG_TD
-	LOG(">>> Worker %d unregisters worker %d\n", ID, req->ID);
-#endif
-
-	assert(req->state == STATE_UPDATE);
-	req->state = STATE_WORKING;
-
-	assert(workers_q[req->pID] > 0);
-	workers_q[req->pID]--;
-	num_workers_q--;
-	quiescent = false;
-	updates_received++;
-
-	assert(0 <= num_workers_q && num_workers_q < MAXSTEAL * my_partition->num_workers_rt);
-}
+static PRIVATE bool quiescent;
 
 static inline void detect_termination(void)
 {
-	if (num_workers_q == MAXSTEAL * my_partition->num_workers_rt && !quiescent) {
-		quiescent = true;
-	}
+	assert(ID == MASTER_ID);
+	assert(subtree_is_idle(MASTER_ID));
+#if MAXSTEAL == 1
+	assert(!quiescent);
+#endif
 
-	if (quiescent) {
 #ifdef DEBUG_TD
-		LOG(">>> Worker %d detected termination <<<\n", ID);
+	LOG(">>> Worker %d detects termination <<<\n", ID);
 #endif
-	}
+	quiescent = true;
 }
-
-#if STEAL == adaptive
-// Number of steals after which the current strategy is reevaluated
-#ifndef STEAL_ADAPTIVE_INTERVAL
-#define STEAL_ADAPTIVE_INTERVAL 25
-#endif
-PRIVATE int num_tasks_exec_recently;
-static PRIVATE int num_steals_exec_recently;
-static PRIVATE bool stealhalf;
-PRIVATE unsigned int requests_steal_one, requests_steal_half;
-#endif
 
 // Asynchronous call of function fn delivered via channel chan
 // Executed for side effects only
@@ -634,14 +602,12 @@ ASYNC_ACTION(notify_workers)
 {
 	assert(!tasking_finished);
 
-	int child = 2*ID + 1;
-
-	if (child < num_workers) {
-		async_action(notify_workers, chan_tasks[child][0]);
+	if (left_worker != -1) {
+		async_action(notify_workers, chan_tasks[left_worker][0]);
 	}
 
-	if (child + 1 < num_workers) {
-		async_action(notify_workers, chan_tasks[child + 1][0]);
+	if (right_worker != -1) {
+		async_action(notify_workers, chan_tasks[right_worker][0]);
 	}
 
 	WORKER num_tasks_exec--;
@@ -649,12 +615,23 @@ ASYNC_ACTION(notify_workers)
 	tasking_finished = true;
 }
 
+#if STEAL == adaptive
+// Number of steals after which the current strategy is reevaluated
+#ifndef STEAL_ADAPTIVE_INTERVAL
+#define STEAL_ADAPTIVE_INTERVAL 25
+#endif
+PRIVATE int num_tasks_exec_recently;
+static PRIVATE int num_steals_exec_recently;
+static PRIVATE bool stealhalf;
+PRIVATE unsigned int requests_steal_one, requests_steal_half;
+#endif
+
 // Try to send a steal request
 // Every worker can have at most MAXSTEAL pending steal requests. A steal
 // request with idle == false indicates that the requesting worker is still
 // busy working on some tasks. A steal request with idle == true indicates that
 // the requesting worker is in fact idle and has nothing to work on.
-static inline void try_send_steal_request(bool idle)
+static void try_send_steal_request(bool idle)
 {
 	PROFILE(SEND_RECV_REQ) {
 
@@ -696,95 +673,62 @@ static inline void try_send_steal_request(bool idle)
 	} // PROFILE
 }
 
-#ifdef DISABLE_MANAGER
-
-static inline void decline_steal_request(struct steal_request *req)
+// Pass steal request on to another worker
+static void decline_steal_request(struct steal_request *req)
 {
-	PROFILE(SEND_RECV_REQ) {
+	assert(req->try < MAX_STEAL_ATTEMPTS+1);
 
-	requests_declined++;
 	req->try++;
 
-	assert(req->try <= MAX_STEAL_ATTEMPTS+1);
-
-	if (req->try < MAX_STEAL_ATTEMPTS+1) {
-		//if (my_partition->num_workers_rt > 2) {
-		//	if (ID == req->ID) print_steal_req(req);
-		//	assert(ID != req->ID);
-		//}
-		SEND_REQ_WORKER(next_victim(req), req);
-	} else {
-		req->try = 0;
-		SEND_REQ_WORKER(next_victim(req), req);
-	}
-
-	} // PROFILE
-}
-
-#else
-
-// Got a steal request that can't be served?
-// Pass it on to a different victim or send it back to manager
-static inline void decline_steal_request(struct steal_request *req)
-{
-	MASTER {
-		if (req->try == MAX_STEAL_ATTEMPTS+1) {
-			req->try = 0;
-		} else {
-			req->try++;
-		}
-	} else {
-		assert(req->try < MAX_STEAL_ATTEMPTS+1);
-		req->try++;
-	}
-
 	PROFILE(SEND_RECV_REQ) {
 
 	requests_declined++;
 
-	assert(req->try <= MAX_STEAL_ATTEMPTS+1);
-
 	if (req->try < MAX_STEAL_ATTEMPTS+1) {
 		SEND_REQ_WORKER(next_victim(req), req);
 	} else {
-		if (ID != MASTER_ID && req->state == STATE_REG_IDLE) {
-			// Don't bother manager; we are quiescent anyway
+		assert(req->ID == ID);
+		assert(req->try == MAX_STEAL_ATTEMPTS+1);
+		if (req->state == STATE_IDLE && subtree_is_idle(ID)) {
+			MASTER {
+				// TODO: Is this the best place to detect termination?
+				detect_termination();
+				FORGET_REQ(req);
+			} else {
+				// Pass steal request on to parent
+				req->state = STATE_FAILED;
+#ifdef DEBUG_TD
+				LOG("Worker %d sends STATE_FAILED to worker %d\n", ID, parent_worker);
+#endif
+				SEND_REQ_WORKER(parent_worker, req);
+			}
+		} else {
+			// Continue circulating the steal request
 			req->try = 0;
 			SEND_REQ_WORKER(next_victim(req), req);
-		} else {
-			SEND_REQ_MANAGER(req);
 		}
 	}
 
 	} // PROFILE
 }
 
-#endif // DISABLE_MANAGER
-
-static inline void decline_all_steal_requests(void)
+static void decline_all_steal_requests(void)
 {
 	struct steal_request req;
 
 	PROFILE_STOP(IDLE);
 
 	if (RECV_REQ(&req)) {
+		// decline_all_steal_requests is only called when a worker has nothing
+		// else to do but relay steal requests, which means the worker is idle.
 		if (req.ID == ID && req.state == STATE_WORKING) {
 			req.state = STATE_IDLE;
-#ifdef DISABLE_MANAGER
-			atomic_inc(td_count);
-#endif
 		}
 		decline_steal_request(&req);
 	}
 
 	PROFILE_START(IDLE);
 }
-
-#ifdef STEAL_EARLY
-#ifndef STEAL_EARLY_THRESHOLD
-#define STEAL_EARLY_THRESHOLD 0
-#endif
-#endif
 
 #ifdef LAZY_FUTURES
 static void convert_lazy_future(Task *task)
@@ -801,10 +745,21 @@ static void convert_lazy_future(Task *task)
 }
 #endif
 
+#ifdef STEAL_EARLY
+#ifndef STEAL_EARLY_THRESHOLD
+#define STEAL_EARLY_THRESHOLD 0
+#endif
+#endif
+
+// Handle a steal request by sending tasks in return or passing it on to
+// another worker
 static void handle_steal_request(struct steal_request *req)
 {
 	Task *task;
 	int loot = 1;
+
+	// Steal requests in backoff_queue are handled by share_work
+	assert(req->state != STATE_FAILED);
 
 	if (req->ID == ID) {
 		task = get_current_task();
@@ -826,7 +781,10 @@ static void handle_steal_request(struct steal_request *req)
 			// give up for now
 			FORGET_REQ(req);
 #else
-			decline_steal_request(req); // => send to manager
+			// TODO: Which is more reasonable: Continue circulating steal
+			// request or dropping it for now?
+			//FORGET_REQ(req);
+			decline_steal_request(req);
 #endif
 			return;
 		}
@@ -850,7 +808,6 @@ static void handle_steal_request(struct steal_request *req)
 	} // PROFILE
 
 	if (task) {
-		CHECK_NOTIFY_MANAGER(req);
 		PROFILE(SEND_RECV_TASK) {
 
 		task->batch = loot;
@@ -874,11 +831,73 @@ static void handle_steal_request(struct steal_request *req)
 
 		} // PROFILE
 	} else {
-		// Got steal request, but can't serve it
-		// Pass it on to someone else
+		// There's nothing we can do with this steal request except pass it on
+		// to a different worker
 		assert(deque_list_tl_empty(deque));
 		decline_steal_request(req);
 		HAVE_NO_TASKS();
+	}
+}
+
+// Handle all steal requests in backoff_queue
+static void share_work(void)
+{
+	Task *task;
+	int loot;
+
+	while (!BACKOFF_QUEUE_EMPTY() && !deque_list_tl_empty(deque)) {
+		struct steal_request *req = BACKOFF_QUEUE_POP();
+		assert(req->ID == left_worker || req->ID == right_worker);
+		assert(req->try == MAX_STEAL_ATTEMPTS+1);
+		assert(req->state == STATE_FAILED);
+#ifdef DEBUG_TD
+		LOG("Worker %d shares tasks with worker %d\n", ID, req->ID);
+#endif
+		// Since deque contains at least one task, handle_steal_request will
+		// not forward the steal request. We inline and specialize:
+
+		loot = 1;
+
+		PROFILE(ENQ_DEQ_TASK) {
+
+#if STEAL == adaptive
+		if (req->stealhalf) {
+			task = deque_list_tl_steal_half(deque, &loot);
+		} else {
+			task = deque_list_tl_steal(deque);
+		}
+#elif STEAL == half
+		task = deque_list_tl_steal_half(deque, &loot);
+#else // Default is steal-one
+		task = deque_list_tl_steal(deque);
+#endif
+
+		} // PROFILE
+
+		assert(task != NULL);
+
+		PROFILE(SEND_RECV_TASK) {
+
+		task->batch = loot;
+#ifdef STEAL_LASTVICTIM
+		task->victim = ID;
+#endif
+#ifdef LAZY_FUTURES
+		Task *t;
+		for (t = task; t != NULL; t = t->next) {
+			if (t->has_future) convert_lazy_future(t);
+		}
+#endif
+		channel_send(req->chan, (void *)&task, sizeof(Task *));
+		//LOG("Worker %2d: sending %d task%s to worker %d\n",
+		//	ID, loot, loot > 1 ? "s" : "", req->ID);
+		requests_handled++;
+		tasks_sent += loot;
+#ifdef STEAL_LASTTHIEF
+		last_thief = req->ID;
+#endif
+
+		} // PROFILE
 	}
 }
 
@@ -892,9 +911,11 @@ int RT_check_for_steal_requests(void)
 	struct steal_request req;
 	int n = 0;
 
-	if (!channel_peek(chan_requests[ID])) {
+	if (!channel_peek(chan_requests[ID]) && BACKOFF_QUEUE_EMPTY()) {
 		return 0;
 	}
+
+	share_work();
 
 	// Check if someone requested to steal from us
 	while (RECV_REQ(&req)) {
@@ -967,6 +988,9 @@ void *schedule(UNUSED(void *args))
 #if STEAL == adaptive
 		num_steals_exec_recently++;
 #endif
+
+		share_work();
+
 		PROFILE(RUN_TASK) run_task(task);
 		PROFILE(ENQ_DEQ_TASK) deque_list_tl_task_cache(deque, task);
 
@@ -980,7 +1004,6 @@ void *schedule(UNUSED(void *args))
 int RT_schedule(void)
 {
 	schedule(NULL);
-
 
 	return 0;
 }
@@ -1004,14 +1027,14 @@ empty_local_queue:
 		PROFILE(ENQ_DEQ_TASK) deque_list_tl_task_cache(deque, task);
 	}
 
-	if (num_workers == 1)
-		return 0;
+	if (num_workers == 1) {
+		quiescent = true;
+		goto RT_barrier_exit;
+	}
 
-#ifndef DISABLE_MANAGER
 	if (quiescent) {
 		goto RT_barrier_exit;
 	}
-#endif
 
 	try_send_steal_request(/* idle = */ true);
 	assert(requested);
@@ -1022,15 +1045,9 @@ empty_local_queue:
 		assert(deque_list_tl_empty(deque));
 		assert(requested);
 		decline_all_steal_requests();
-#ifndef DISABLE_MANAGER
 		if (quiescent) {
 			goto RT_barrier_exit;
 		}
-#else
-		if (tasking_all_idle()) {
-			goto RT_barrier_exit;
-		}
-#endif
 	}
 
 	} // PROFILE
@@ -1055,12 +1072,15 @@ empty_local_queue:
 #if STEAL == adaptive
 	num_steals_exec_recently++;
 #endif
+
+	share_work();
+
 	PROFILE(RUN_TASK) run_task(task);
 	PROFILE(ENQ_DEQ_TASK) deque_list_tl_task_cache(deque, task);
 	goto empty_local_queue;
 
 RT_barrier_exit:
-	// Execution continues, but quiescent remains true
+	// Execution continues, but quiescent remains true until new tasks are created
 	assert(quiescent);
 
 #ifdef DEBUG_TD
@@ -1146,6 +1166,9 @@ void RT_force_future(Channel *chan, void *data, unsigned int size)
 #if STEAL == adaptive
 		num_steals_exec_recently++;
 #endif
+
+		share_work();
+
 		PROFILE(RUN_TASK) run_task(task);
 		PROFILE(ENQ_DEQ_TASK) deque_list_tl_task_cache(deque, task);
 	}
@@ -1175,6 +1198,17 @@ void push(Task *task)
 	HAVE_TASKS();
 
 	PROFILE_STOP(ENQ_DEQ_TASK);
+
+	// MASTER
+	if (quiescent) {
+		assert(ID == MASTER_ID);
+#ifdef DEBUG_TD
+		LOG(">>> Worker %d resumes execution after barrier <<<\n", ID);
+#endif
+		quiescent = false;
+	}
+
+	share_work();
 
 	// Check if someone requested to steal from us
 	while (RECV_REQ(&req)) {
@@ -1222,6 +1256,8 @@ Task *pop(void)
 	}
 #endif
 
+	share_work();
+
 	// Check if someone requested to steal from us
 	while (RECV_REQ(&req)) {
 		// If we just popped a loop task, we may split right here
@@ -1254,6 +1290,8 @@ Task *pop_child(void)
 		try_steal();
 	}
 #endif
+
+	share_work();
 
 	// Check if someone requested to steal from us
 	while (RECV_REQ(&req)) {
@@ -1394,8 +1432,6 @@ static void split_loop(Task *task, struct steal_request *req)
 	} // PROFILE
 
 	//LOG("Worker %2d: Sending [%ld, %ld) to worker %d\n", ID, dup->start, dup->end, req->ID);
-
-	CHECK_NOTIFY_MANAGER(req);
 
 	PROFILE(SEND_RECV_TASK) {
 
