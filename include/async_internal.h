@@ -373,7 +373,7 @@ void fun##_task_func(void *__d __attribute__((unused))) \
 	Task *this = get_current_task(); \
 	assert(this->is_loop); \
 	assert(this->start == this->cur); \
-	for (i = this->start, this->cur++; i < this->end; i++, this->cur++, RT_loop_split())
+	for (i = this->start, this->cur++; i < this->end; i++, this->cur++, RT_check_for_steal_requests())
 
 // REDUCE ////////////////////////////////////////////////////////////////////
 

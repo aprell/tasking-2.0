@@ -179,6 +179,11 @@ static inline struct steal_request *BACKOFF_QUEUE_POP(void)
 	return req;
 }
 
+static inline struct steal_request *BACKOFF_QUEUE_HEAD(void)
+{
+	return &backoff_queue[backoff_queue_hd];
+}
+
 // A worker can have up to MAXSTEAL outstanding steal requests:
 // 0 <= requested <= MAXSTEAL
 static PRIVATE int requested;
@@ -758,10 +763,8 @@ static void handle_steal_request(struct steal_request *req)
 	Task *task;
 	int loot = 1;
 
-	// Steal requests in backoff_queue are handled by share_work
-	assert(req->state != STATE_FAILED);
-
 	if (req->ID == ID) {
+		assert(req->state != STATE_FAILED);
 		task = get_current_task();
 		long tasks_left = task && task->is_loop ? abs(task->end - task->cur) : 0;
 		// Got own steal request
@@ -839,105 +842,77 @@ static void handle_steal_request(struct steal_request *req)
 	}
 }
 
-// Handle all steal requests in backoff_queue
-static void share_work(void)
-{
-	Task *task;
-	int loot;
-
-	while (!BACKOFF_QUEUE_EMPTY() && !deque_list_tl_empty(deque)) {
-		struct steal_request *req = BACKOFF_QUEUE_POP();
-		assert(req->ID == left_worker || req->ID == right_worker);
-		assert(req->try == MAX_STEAL_ATTEMPTS+1);
-		assert(req->state == STATE_FAILED);
-#ifdef DEBUG_TD
-		LOG("Worker %d shares tasks with worker %d\n", ID, req->ID);
-#endif
-		// Since deque contains at least one task, handle_steal_request will
-		// not forward the steal request. We inline and specialize:
-
-		loot = 1;
-
-		PROFILE(ENQ_DEQ_TASK) {
-
-#if STEAL == adaptive
-		if (req->stealhalf) {
-			task = deque_list_tl_steal_half(deque, &loot);
-		} else {
-			task = deque_list_tl_steal(deque);
-		}
-#elif STEAL == half
-		task = deque_list_tl_steal_half(deque, &loot);
-#else // Default is steal-one
-		task = deque_list_tl_steal(deque);
-#endif
-
-		} // PROFILE
-
-		assert(task != NULL);
-
-		PROFILE(SEND_RECV_TASK) {
-
-		task->batch = loot;
-#ifdef STEAL_LASTVICTIM
-		task->victim = ID;
-#endif
-#ifdef LAZY_FUTURES
-		Task *t;
-		for (t = task; t != NULL; t = t->next) {
-			if (t->has_future) convert_lazy_future(t);
-		}
-#endif
-		channel_send(req->chan, (void *)&task, sizeof(Task *));
-		//LOG("Worker %2d: sending %d task%s to worker %d\n",
-		//	ID, loot, loot > 1 ? "s" : "", req->ID);
-		requests_handled++;
-		tasks_sent += loot;
-#ifdef STEAL_LASTTHIEF
-		last_thief = req->ID;
-#endif
-
-		} // PROFILE
-	}
-}
-
 // Loop task with iterations left for splitting?
 #define SPLITTABLE(t) \
 	((bool)((t) != NULL && (t)->is_loop && abs((t)->end - (t)->cur) > (t)->sst))
 
-int RT_check_for_steal_requests(void)
+// Convenience function for handling a steal request
+// Returns true if work is available, false otherwise
+static inline bool handle(struct steal_request *req)
 {
 	Task *this = get_current_task();
-	struct steal_request req;
-	int n = 0;
 
-	if (!channel_peek(chan_requests[ID]) && BACKOFF_QUEUE_EMPTY()) {
-		return 0;
+	// Send independent task(s) if possible
+	if (!deque_list_tl_empty(deque)) {
+		handle_steal_request(req);
+		return true;
 	}
 
-	share_work();
-
-	// Check if someone requested to steal from us
-	while (RECV_REQ(&req)) {
-		// (1) Send task(s) if possible
-		// (2) Split current task if possible
-		// (3) Decline (or ignore) steal request
-		if (!deque_list_tl_empty(deque)) {
-			handle_steal_request(&req);
-		} else if (SPLITTABLE(this)) {
-			if (req.ID != ID) {
-				split_loop(this, &req);
-			} else {
-				FORGET_REQ(&req);
-			}
+	// Split current task (this) if possible
+	if (SPLITTABLE(this)) {
+		if (req->ID != ID) {
+			split_loop(this, req);
+			return true;
 		} else {
 			HAVE_NO_TASKS();
-			decline_steal_request(&req);
+			FORGET_REQ(req);
+			return false;
 		}
-		n++;
 	}
 
-	return n;
+	if (req->state == STATE_FAILED) {
+		// Don't recirculate this steal request
+		// TODO: Is this a reasonable decision?
+		assert(req->ID == left_worker || req->ID == right_worker);
+		assert(req->try == MAX_STEAL_ATTEMPTS+1);
+	} else {
+		HAVE_NO_TASKS();
+		decline_steal_request(req);
+	}
+
+	return false;
+}
+
+// Handle as many steal requests in backoff_queue as possible; leave steal
+// requests that cannot be answered with tasks enqueued
+static inline void share_work(void)
+{
+	while (!BACKOFF_QUEUE_EMPTY()) {
+		// Don't dequeue yet
+		struct steal_request *req = BACKOFF_QUEUE_HEAD();
+		if (handle(req)) {
+			// Dequeue/Discard
+			(void)BACKOFF_QUEUE_POP();
+		} else {
+			break;
+		}
+	}
+}
+
+// Receive and handle steal requests
+// Can be called from user code
+void RT_check_for_steal_requests(void)
+{
+	if (!BACKOFF_QUEUE_EMPTY()) {
+		share_work();
+	}
+
+	if (channel_peek(chan_requests[ID])) {
+		struct steal_request req;
+		while (RECV_REQ(&req)) {
+			handle(&req);
+		}
+	}
 }
 
 // Executed by worker threads
@@ -1309,40 +1284,6 @@ Task *pop_child(void)
 	}
 
 	return task;
-}
-
-// Returns true when the current task is split, false otherwise
-bool RT_loop_split(void)
-{
-	Task *this = get_current_task();
-	struct steal_request req;
-
-    // Split lazily, that is, only when needed
-	if (!RECV_REQ(&req)) {
-		return false;
-	}
-
-	// Send independent tasks if possible
-	if (!deque_list_tl_empty(deque)) {
-		handle_steal_request(&req);
-		return false;
-	}
-
-	// Split if possible
-	if (SPLITTABLE(this)) {
-		if (req.ID != ID) {
-			split_loop(this, &req);
-			return true;
-		} else {
-			HAVE_NO_TASKS();
-			FORGET_REQ(&req);
-			return false;
-		}
-	}
-
-	decline_steal_request(&req);
-
-	return false;
 }
 
 #if SPLIT == half

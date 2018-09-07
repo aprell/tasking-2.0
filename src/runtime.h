@@ -36,11 +36,8 @@ Task *pop_child(void);
 
 Task *task_alloc(void);
 
-// This function implements support for loop tasks and work-splitting
-bool RT_loop_split(void);
-
 // For user code: poll for incoming steal requests and handle them if possible
-int RT_check_for_steal_requests(void);
+void RT_check_for_steal_requests(void);
 
 // Convenience macro
 // Example: Polling on loop back edges with
