@@ -1,5 +1,4 @@
 //#define LOOPTASKS
-#define FUTURE_AWAIT
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -56,14 +55,7 @@ static void lu0(int i)
 	__lu0(BSIZE, (void *)A(i,i));
 }
 
-#if defined FUTURE_AWAIT
-FUTURE_DECL_FREELIST(void);
-VOID_FUTURE_DECL(lu0, int i, i);
-#elif defined SPAWN_SYNC
-VOID_TASK_DECL(lu0, int i, i);
-#else
-ASYNC_DECL(lu0, int i, i);
-#endif
+DEFINE_ASYNC(lu0, (int));
 
 //#pragma css task input(BSIZE, diag) inout(row)
 static void __bdiv(int BSIZE, double A[BSIZE][BSIZE], double C[BSIZE][BSIZE])
@@ -86,13 +78,7 @@ static void bdiv(int i, int j)
 	__bdiv(BSIZE, (void *)A(i,i), (void *)A(j,i));
 }
 
-#if defined FUTURE_AWAIT
-VOID_FUTURE_DECL(bdiv, int i; int j, i, j);
-#elif defined SPAWN_SYNC
-VOID_TASK_DECL(bdiv, int i; int j, i, j);
-#else
-ASYNC_DECL(bdiv, int i; int j, i, j);
-#endif
+DEFINE_ASYNC(bdiv, (int, int));
 
 //#pragma css task input(BSIZE, row, col) inout(inner)
 static void __bmod(int BSIZE, double A[BSIZE][BSIZE], double B[BSIZE][BSIZE], double C[BSIZE][BSIZE])
@@ -117,13 +103,7 @@ static void bmod(int i, int j, int k)
 	__bmod(BSIZE, (void *)A(i,k), (void *)A(k,j), (void *)A(i,j));
 }
 
-#if defined FUTURE_AWAIT
-VOID_FUTURE_DECL(bmod, int i; int j; int k, i, j, k);
-#elif defined SPAWN_SYNC
-VOID_TASK_DECL(bmod, int i; int j; int k, i, j, k);
-#else
-ASYNC_DECL(bmod, int i; int j; int k, i, j, k);
-#endif
+DEFINE_ASYNC(bmod, (int, int, int));
 
 //#pragma css task input(BSIZE, diag) inout(col)
 static void __fwd(int BSIZE, double A[BSIZE][BSIZE], double C[BSIZE][BSIZE])
@@ -145,13 +125,7 @@ static void fwd(int i, int j)
 	__fwd(BSIZE, (void *)A(i,i), (void *)A(i,j));
 }
 
-#if defined FUTURE_AWAIT
-VOID_FUTURE_DECL(fwd, int i; int j, i, j);
-#elif defined SPAWN_SYNC
-VOID_TASK_DECL(fwd, int i; int j, i, j);
-#else
-ASYNC_DECL(fwd, int i; int j, i, j);
-#endif
+DEFINE_ASYNC(fwd, (int, int));
 
 static void lu_init(int argc, char *argv[])
 {
@@ -324,53 +298,50 @@ static void lu_decompose(void)
 	}
 }
 
-#if defined LOOPTASKS
+#ifdef LOOPTASKS
 
 static void fwd_loop(int k)
 {
 	long j;
 
-	for_each_task (j) {
+	ASYNC_FOR (j) {
 		if (A(k,j)) {
 			fwd(k, j);
 		}
-		RT_loop_split();
 	}
 }
 
-ASYNC_DECL(fwd_loop, int k, k);
+DEFINE_ASYNC(fwd_loop, (int));
 
 static void bdiv_loop(int k)
 {
 	long i;
 
-	for_each_task (i) {
+	ASYNC_FOR (i) {
 		if (A(i,k)) {
 			bdiv(k, i);
 		}
-		RT_loop_split();
 	}
 }
 
-ASYNC_DECL(bdiv_loop, int k, k);
+DEFINE_ASYNC(bdiv_loop, (int));
 
 static void bmod_loop(int k)
 {
 	long i, j;
 
-	for_each_task (i) {
+	ASYNC_FOR (i) {
 		if (A(i,k)) {
 			for (j = k + 1; j < NBD; j++) {
 				if (A(k,j)) {
-					ASYNC(bmod, i, j, k);
+					ASYNC(bmod, (i, j, k));
 				}
 			}
 		}
-		RT_loop_split();
 	}
 }
 
-ASYNC_DECL(bmod_loop, int k, k);
+DEFINE_ASYNC(bmod_loop, (int));
 
 static void par_lu_decompose(void)
 {
@@ -379,108 +350,19 @@ static void par_lu_decompose(void)
 	for (k = 0; k < NBD; k++) {
 		lu0(k);
 
-		ASYNC_FOR(fwd_loop, k+1, NBD, k);
+		ASYNC(fwd_loop, (k+1, NBD), (k));
 
-		ASYNC_FOR(bdiv_loop, k+1, NBD, k);
-
-		TASKING_BARRIER();
-
-		ASYNC_FOR(bmod_loop, k+1, NBD, k);
+		ASYNC(bdiv_loop, (k+1, NBD), (k));
 
 		TASKING_BARRIER();
+
+		ASYNC(bmod_loop, (k+1, NBD), (k));
+
+		TASKING_BARRIER();
 	}
 }
 
-#elif defined FUTURE_AWAIT
-
-#define AWAIT_ALL \
-do { \
-	while (--t >= 0) { \
-		__AWAIT_VOID(tasks[t]); \
-	} \
-	t = 0; \
-} while (0)
-
-static void par_lu_decompose(void)
-{
-	future tasks[NBD * NBD];
-	int i, j, k;
-	int t = 0;
-
-	for (k = 0; k < NBD; k++) {
-		lu0(k);
-
-		for (j = k + 1; j < NBD; j++) {
-			if (A(k,j)) {
-				tasks[t++] = __ASYNC(fwd, k, j);
-			}
-		}
-
-		for (i = k + 1; i < NBD; i++) {
-			if (A(i,k)) {
-				tasks[t++] = __ASYNC(bdiv, k, i);
-			}
-		}
-
-		//printf("k = %d, num_tasks = %d\n", k, t);
-
-		AWAIT_ALL;
-
-		for (i = k + 1; i < NBD; i++) {
-			if (A(i,k)) {
-				for (j = k + 1; j < NBD; j++) {
-					if (A(k,j)) {
-						tasks[t++] = __ASYNC(bmod, i, j, k);
-					}
-				}
-			}
-		}
-
-		//printf("k = %d, num_tasks = %d\n", k, t);
-
-		AWAIT_ALL;
-	}
-}
-
-#elif defined SPAWN_SYNC
-
-static void par_lu_decompose(void)
-{
-	atomic_t num_children = 0;
-	int i, j, k;
-
-	for (k = 0; k < NBD; k++) {
-		lu0(k);
-
-		for (j = k + 1; j < NBD; j++) {
-			if (A(k,j)) {
-				SPAWN(fwd, k, j);
-			}
-		}
-
-		for (i = k + 1; i < NBD; i++) {
-			if (A(i,k)) {
-				SPAWN(bdiv, k, i);
-			}
-		}
-
-		SYNC;
-
-		for (i = k + 1; i < NBD; i++) {
-			if (A(i,k)) {
-				for (j = k + 1; j < NBD; j++) {
-					if (A(k,j)) {
-						SPAWN(bmod, i, j, k);
-					}
-				}
-			}
-		}
-
-		SYNC;
-	}
-}
-
-#else // Regular tasks + barriers
+#else
 
 static void par_lu_decompose(void)
 {
@@ -491,13 +373,13 @@ static void par_lu_decompose(void)
 
 		for (j = k + 1; j < NBD; j++) {
 			if (A(k,j)) {
-				ASYNC(fwd, k, j);
+				ASYNC(fwd, (k, j));
 			}
 		}
 
 		for (i = k + 1; i < NBD; i++) {
 			if (A(i,k)) {
-				ASYNC(bdiv, k, i);
+				ASYNC(bdiv, (k, i));
 			}
 		}
 
@@ -507,7 +389,7 @@ static void par_lu_decompose(void)
 			if (A(i,k)) {
 				for (j = k + 1; j < NBD; j++) {
 					if (A(k,j)) {
-						ASYNC(bmod, i, j, k);
+						ASYNC(bmod, (i, j, k));
 					}
 				}
 			}
@@ -517,7 +399,7 @@ static void par_lu_decompose(void)
 	}
 }
 
-#endif // par_lu_decompose
+#endif // LOOPTASKS for par_lu_decompose
 
 #if 0
 static void lu_decompose(void)
