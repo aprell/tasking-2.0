@@ -42,6 +42,6 @@ void RT_check_for_steal_requests(void);
 // Convenience macro
 // Example: Polling on loop back edges with
 // for (i = 0; i < n; i++, POLL()) ...
-#define POLL() (void)RT_check_for_steal_requests()
+#define POLL() RT_check_for_steal_requests()
 
 #endif // RUNTIME_H

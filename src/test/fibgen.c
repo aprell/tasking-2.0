@@ -20,11 +20,11 @@ do { \
 	Channel *__c_tmp = chanref_get(c); \
 	typeof(v) __v_tmp = (v); \
 	while (!channel_send(__c_tmp, &__v_tmp, sizeof(__v_tmp))) \
-		(void)RT_check_for_steal_requests(); \
+		RT_check_for_steal_requests(); \
 	if (channel_unbuffered(__c_tmp)) { \
 		/* Wait until value has been received */ \
 		while (channel_peek(__c_tmp)) \
-			(void)RT_check_for_steal_requests(); \
+			RT_check_for_steal_requests(); \
 	} \
 } while (0)
 
@@ -32,7 +32,7 @@ do { \
 do { \
 	Channel *__c_tmp = chanref_get(c); \
  	while (!channel_receive(__c_tmp, p, sizeof(*(p)))) \
-		(void)RT_check_for_steal_requests(); \
+		RT_check_for_steal_requests(); \
 } while (0)
 
 #define LOG(...) { printf(__VA_ARGS__); fflush(stdout); }

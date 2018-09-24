@@ -36,7 +36,6 @@ static int compute(int usec)
 			f2 = f1;
 			f1 = fib;
 		}
-		//(void)RT_check_for_steal_requests();
 	}
 	//printf("Elapsed: %.2lfus\n", elapsed);
 

@@ -69,7 +69,7 @@ static void __bdiv(int BSIZE, double A[BSIZE][BSIZE], double C[BSIZE][BSIZE])
 				C[i][j] = C[i][j] - C[i][k] * A[k][j];
 			}
 		}
-		(void)RT_check_for_steal_requests();
+		RT_check_for_steal_requests();
 	}
 }
 
@@ -91,7 +91,7 @@ static void __bmod(int BSIZE, double A[BSIZE][BSIZE], double B[BSIZE][BSIZE], do
 				C[i][j] = C[i][j] - A[i][k] * B[k][j];
 			}
 		}
-		(void)RT_check_for_steal_requests();
+		RT_check_for_steal_requests();
 	}
 }
 
@@ -116,7 +116,7 @@ static void __fwd(int BSIZE, double A[BSIZE][BSIZE], double C[BSIZE][BSIZE])
 				C[i][j] = C[i][j] - A[i][k] * C[k][j];
 			}
 		}
-		(void)RT_check_for_steal_requests();
+		RT_check_for_steal_requests();
 	}
 }
 

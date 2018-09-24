@@ -291,7 +291,7 @@ static inline void __block_matmul(double C[BSIZE][BSIZE], double A[BSIZE][BSIZE]
 				C[i][j] += A[i][k] * B[k][j];
 			}
 		}
-		(void)RT_check_for_steal_requests();
+		RT_check_for_steal_requests();
 	}
 }
 
