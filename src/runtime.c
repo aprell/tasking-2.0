@@ -15,6 +15,10 @@ UTEST_MAIN() {}
 #include "partition.h"
 #include "partition.c"
 
+#if MAXSTEAL > 1
+#error "MAXSTEAL > 1 not yet supported"
+#endif
+
 #define LOG(...) { printf(__VA_ARGS__); fflush(stdout); }
 #define UNUSED(x) x __attribute__((unused))
 
@@ -202,44 +206,59 @@ static PRIVATE int last_thief = -1;
 // Shared state!
 static int *victims[MAXWORKERS];
 
-// Private copy of victims field
-static PRIVATE int *my_victims;
-
 // A worker has a unique ID within its partition:
 // 0 <= pID <= num_workers_rt
 static PRIVATE int pID;
 
+static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
+
+#define PRINTF(...) \
+do { \
+	pthread_mutex_lock(&lock); \
+	printf(__VA_ARGS__); \
+	fflush(stdout); \
+	pthread_mutex_unlock(&lock); \
+} while (0)
+
+static inline void print_victims(int ID)
+{
+	pthread_mutex_lock(&lock);
+
+	printf("victims[%d] = { ", ID);
+
+	for (int i = 0; i < num_workers-1; i++) {
+		printf("%2d, ", victims[ID][i]);
+	}
+
+	printf("%2d }\n", victims[ID][num_workers-1]);
+
+	pthread_mutex_unlock(&lock);
+}
+
 static void init_victims(int ID)
 {
-	// 0 < num_workers <= MAXWORKERS = 256
-	int available_workers[num_workers];
 	int i, j;
 
 	// Get all available workers in my_partition
 	for (i = 0, j = 0; i < my_partition->num_workers; i++) {
 		int worker = my_partition->workers[i];
 		if (worker < num_workers) {
-			available_workers[j++] = worker;
+			victims[ID][j++] = worker;
 			my_partition->num_workers_rt++;
 		}
 	}
 
-	// my_victims contains all possible victims in my_partition
-	for (i = 0, j = 0; i < my_partition->num_workers_rt; i++) {
-		if (available_workers[i] != ID) {
-			my_victims[j++] = available_workers[i];
-		}
-	}
-
-	// We store our own ID here because eventually, after N unsuccessful tries
-	// (N being the number of potential victims in my_partition), the steal
-	// request must go back to the thief. Otherwise, we would not be able to
-	// send steal requests ahead of time.
-	my_victims[j] = ID;
-
 	MASTER LOG("Manager %2d: %d of %d workers available\n", ID,
 		   my_partition->num_workers_rt, my_partition->num_workers);
 }
+
+#define INIT_VICTIMS() \
+do { \
+	int i; \
+	for (i = 0; i < num_workers; i++) { \
+		victims[ID][i] = i; \
+	} \
+} while (0)
 
 static PRIVATE unsigned int seed;
 
@@ -260,25 +279,11 @@ static void shuffle(int *workers, int len)
 	}
 }
 
-static inline void shuffle_victims()
-{
-	shuffle(my_victims, my_partition->num_workers_rt-1);
-	my_victims[my_partition->num_workers_rt-1] = ID;
-}
-
-static inline void copy_victims()
-{
-	// Update shared copy of my_victims
-	memcpy(victims[ID], my_victims, my_partition->num_workers_rt * sizeof(int));
-}
-
 // Initializes context needed for work-stealing
 static int ws_init(void)
 {
 	seed = ID;
 	init_victims(ID);
-	shuffle_victims();
-	copy_victims();
 
 	return 0;
 }
@@ -315,6 +320,21 @@ static inline int parent(int ID)
 static inline bool subtree_is_idle(UNUSED(int ID))
 {
 	return backoff_queue_num_entries == num_children * MAXSTEAL;
+}
+
+static inline void mark_as_idle(int *victims, int n)
+// requires victims != NULL
+// requires -1 <= n < num_workers
+{
+	assert(victims != NULL);
+	assert(-1 <= n && n < num_workers);
+
+	// Valid worker ID?
+	if (n == -1) return;
+
+	victims[n] = -1;
+	mark_as_idle(victims, left_child(n));
+	mark_as_idle(victims, right_child(n));
 }
 
 // To profile different parts of the runtime
@@ -368,7 +388,6 @@ int RT_init(void)
 	assert(channel_stack_top == MAXSTEAL);
 
 	victims[ID] = (int *)malloc(MAXWORKERS * sizeof(int));
-	my_victims = (int *)malloc(MAXWORKERS * sizeof(int));
 
 	ws_init();
 
@@ -416,7 +435,6 @@ int RT_exit(void)
 	deque_list_tl_delete(deque);
 
 	free(victims[ID]);
-	free(my_victims);
 
 	channel_free(chan_requests[ID]);
 #ifdef CHANNEL_CACHE
@@ -445,22 +463,64 @@ Task *task_alloc(void)
 #define MAX_STEAL_ATTEMPTS (my_partition->num_workers_rt-1)
 #endif
 
-static inline int next_victim(struct steal_request *req)
+static int next_victim(struct steal_request *req)
 {
-	int victim, i;
+	int victim = -1, i;
 
-	for (i = req->try; i < MAX_STEAL_ATTEMPTS; i++) {
-		victim = victims[req->ID][i];
-		if (LIKELY_HAS_TASKS(victim)) {
-			//LOG("Worker %d: Choosing victim %d after %i tries (requester %d)\n", ID, victim, i, req->ID);
-			return victim;
+#define VICTIMS victims[req->ID]
+
+	if (req->ID == ID) {
+		assert(req->try == 0);
+		// Initially: send message to random worker != ID
+		do { victim = rand_r(&seed) % num_workers; } while (victim == ID);
+	} else if (req->try == MAX_STEAL_ATTEMPTS) {
+		// Return steal request to thief
+		VICTIMS[ID] = -1;
+		victim = req->ID;
+	} else {
+		// Forward steal request to different worker != ID, if possible
+		// TODO: Right now, we can only detect when the entire subtree rooted
+		// at worker ID is idle.
+		if (subtree_is_idle(ID)) {
+			mark_as_idle(VICTIMS, ID);
+			assert(VICTIMS[ID] == -1);
+			victim = parent(ID);
+			if (victim == req->ID && victim != -1) {
+				victim = parent(victim);
+			}
+		} else {
+			VICTIMS[ID] = -1;
+			// Try to choose a random victim
+			for (i = 0; i < 3; i++) {
+				int r = rand_r(&seed) % num_workers;
+				if (VICTIMS[r] != -1 && VICTIMS[r] != req->ID) {
+					victim = r;
+					break;
+				}
+			}
+			// If unsuccessful, choose a worker as high in the tree as possible
+			if (victim == -1) {
+				for (i = 0; i < num_workers; i++) {
+					if (VICTIMS[i] != -1 && VICTIMS[i] != req->ID) {
+						victim = i;
+						break;
+					}
+				}
+			}
 		}
-		req->try++;
 	}
 
-	assert(i == req->try && req->try == MAX_STEAL_ATTEMPTS);
+#undef VICTIMS
 
-	return req->ID;
+	if (victim == -1) {
+		// Couldn't find victim; return steal request to thief
+		victim = req->ID;
+	}
+
+	assert(0 <= victim && victim < num_workers && victim != ID);
+	assert(0 <= req->try && req->try <= MAX_STEAL_ATTEMPTS);
+
+	return victim;
 }
 
 #if defined STEAL_LASTVICTIM || defined STEAL_LASTTHIEF
@@ -514,7 +574,6 @@ static inline bool RECV_REQ(struct steal_request *req)
 			LOG("Worker %d receives STATE_FAILED from worker %d\n", ID, req->ID);
 #endif
 			assert(req->ID == left_worker || req->ID == right_worker);
-			assert(req->try == MAX_STEAL_ATTEMPTS+1);
 			// Hold on to this steal request
 			BACKOFF_QUEUE_PUSH(req);
 			ret = channel_receive(chan_requests[ID], req, sizeof(*req));
@@ -657,10 +716,7 @@ static void try_send_steal_request(bool idle)
 		req.state = idle ? STATE_IDLE : STATE_WORKING;
 		assert(req.try == 0);
 		// Avoid concurrent access to victims[ID]
-		if (!requested) {
-			shuffle_victims();
-			copy_victims();
-		}
+		if (!requested) INIT_VICTIMS();
 #ifdef STEAL_LASTVICTIM
 		SEND_REQ_WORKER(steal_from(&req, last_victim), &req);
 #elif defined STEAL_LASTTHIEF
@@ -689,11 +745,8 @@ static void decline_steal_request(struct steal_request *req)
 
 	requests_declined++;
 
-	if (req->try < MAX_STEAL_ATTEMPTS+1) {
-		SEND_REQ_WORKER(next_victim(req), req);
-	} else {
-		assert(req->ID == ID);
-		assert(req->try == MAX_STEAL_ATTEMPTS+1);
+	if (req->ID == ID) {
+		// Steal request was returned
 		if (req->state == STATE_IDLE && subtree_is_idle(ID)) {
 			MASTER {
 				// TODO: Is this the best place to detect termination?
@@ -710,8 +763,11 @@ static void decline_steal_request(struct steal_request *req)
 		} else {
 			// Continue circulating the steal request
 			req->try = 0;
+			INIT_VICTIMS();
 			SEND_REQ_WORKER(next_victim(req), req);
 		}
+	} else {
+		SEND_REQ_WORKER(next_victim(req), req);
 	}
 
 	} // PROFILE
@@ -874,7 +930,6 @@ static inline bool handle(struct steal_request *req)
 		// Don't recirculate this steal request
 		// TODO: Is this a reasonable decision?
 		assert(req->ID == left_worker || req->ID == right_worker);
-		assert(req->try == MAX_STEAL_ATTEMPTS+1);
 	} else {
 		HAVE_NO_TASKS();
 		decline_steal_request(req);
