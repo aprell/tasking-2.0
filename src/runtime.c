@@ -4,6 +4,7 @@
 #include <string.h>
 #include <assert.h>
 #include <pthread.h>
+#include "bit.h"
 #include "runtime.h"
 #include "deque_list_tl.h"
 // Disable unit tests
@@ -102,18 +103,21 @@ typedef unsigned char state_t;
 #define STATE_IDLE     0x02
 #define STATE_FAILED   0x04
 
+#define INIT_VICTIMS (0xFFFFFFFF & BIT_MASK_32(my_partition->num_workers_rt))
+
 struct steal_request {
 	Channel *chan;  // channel for sending tasks
 	int ID;			// ID of requesting worker
 	int try;	   	// 0 <= try <= num_workers_rt
 	int partition; 	// partition in which the steal request was initiated
 	int pID;		// ID of requesting worker within partition
+	unsigned int victims; // Bit field of potential victims
 	state_t state;  // state of steal request and, by extension, requesting worker
 #if STEAL == adaptive
 	bool stealhalf; // true ? attempt steal-half : attempt steal-one
-	char __[6];     // pad to cache line
+	char __[2];     // pad to cache line
 #else
-	char __[7];	    // pad to cache line
+	char __[3];	    // pad to cache line
 #endif
 };
 
@@ -130,6 +134,7 @@ struct steal_request {
 	.try = 0, \
 	.partition = my_partition->number, \
 	.pID = pID, \
+	.victims = INIT_VICTIMS, \
 	.state = STATE_WORKING \
 	STEAL_REQUEST_INIT_stealhalf \
 }
@@ -192,6 +197,9 @@ static inline struct steal_request *BACKOFF_QUEUE_HEAD(void)
 // 0 <= requested <= MAXSTEAL
 static PRIVATE int requested;
 
+// When a worker backs off from stealing and waits for tasks from its parent
+static PRIVATE bool waiting_for_tasks;
+
 #ifdef STEAL_LASTVICTIM
 // ID of last victim
 static PRIVATE int last_victim = -1;
@@ -202,9 +210,7 @@ static PRIVATE int last_victim = -1;
 static PRIVATE int last_thief = -1;
 #endif
 
-// Every worker keeps a list of victims that can be read by other workers
-// Shared state!
-static int *victims[MAXWORKERS];
+static PRIVATE int *victims;
 
 // A worker has a unique ID within its partition:
 // 0 <= pID <= num_workers_rt
@@ -220,21 +226,32 @@ do { \
 	pthread_mutex_unlock(&lock); \
 } while (0)
 
-static inline void print_victims(int ID)
+static inline void print_victims(unsigned int victims, int ID)
 {
+#define VICTIM(victims, n) (((victims) & BIT(n)) != 0 ? '1' : '0')
+	assert(1 <= my_partition->num_workers_rt && my_partition->num_workers_rt <= 32);
+
+	int i;
+
 	pthread_mutex_lock(&lock);
 
-	printf("victims[%d] = { ", ID);
+	printf("victims[%2d] = ", ID);
 
-	for (int i = 0; i < num_workers-1; i++) {
-		printf("%2d, ", victims[ID][i]);
+	for (i = 31; i > my_partition->num_workers_rt-1; i--) {
+		putchar('.');
 	}
 
-	printf("%2d }\n", victims[ID][num_workers-1]);
+	for (; i > 0; i--) {
+		putchar(VICTIM(victims, i));
+	}
+
+	printf("%c\n", VICTIM(victims, 0));
 
 	pthread_mutex_unlock(&lock);
+#undef VICTIM
 }
 
+// Currently only needed to count the number of workers
 static void init_victims(int ID)
 {
 	int i, j;
@@ -243,7 +260,7 @@ static void init_victims(int ID)
 	for (i = 0, j = 0; i < my_partition->num_workers; i++) {
 		int worker = my_partition->workers[i];
 		if (worker < num_workers) {
-			victims[ID][j++] = worker;
+			victims[j++] = worker;
 			my_partition->num_workers_rt++;
 		}
 	}
@@ -252,32 +269,7 @@ static void init_victims(int ID)
 		   my_partition->num_workers_rt, my_partition->num_workers);
 }
 
-#define INIT_VICTIMS() \
-do { \
-	int i; \
-	for (i = 0; i < num_workers; i++) { \
-		victims[ID][i] = i; \
-	} \
-} while (0)
-
 static PRIVATE unsigned int seed;
-
-static void swap(int *a, int *b)
-{
-	int tmp = *a;
-	*a = *b;
-	*b = tmp;
-}
-
-// Fisher-Yates shuffle
-static void shuffle(int *workers, int len)
-{
-	int rand, i;
-	for (i = len-1; i > 0; i--) {
-		rand = rand_r(&seed) % (i + 1);
-		swap(&workers[rand], &workers[i]);
-	}
-}
 
 // Initializes context needed for work-stealing
 static int ws_init(void)
@@ -322,19 +314,90 @@ static inline bool subtree_is_idle(UNUSED(int ID))
 	return backoff_queue_num_entries == num_children * MAXSTEAL;
 }
 
-static inline void mark_as_idle(int *victims, int n)
+static inline void mark_as_idle(unsigned int *victims, int n)
 // requires victims != NULL
 // requires -1 <= n < num_workers
 {
-	assert(victims != NULL);
-	assert(-1 <= n && n < num_workers);
-
 	// Valid worker ID?
 	if (n == -1) return;
 
-	victims[n] = -1;
-	mark_as_idle(victims, left_child(n));
-	mark_as_idle(victims, right_child(n));
+	if (n < num_workers) {
+		mark_as_idle(victims, left_child(n));
+		mark_as_idle(victims, right_child(n));
+		// Unset worker n
+		*victims &= ~BIT(n);
+	}
+}
+
+// Find the rightmost potential victim != ID
+static inline int rightmost_victim(unsigned int victims, int ID)
+{
+	int victim = rightmost_one_bit_pos(victims);
+	if (victim == ID) {
+		victim = rightmost_one_bit_pos(ZERO_RIGHTMOST_ONE_BIT(victims));
+	}
+
+	assert(
+		/* in case of success */ (0 <= victim && victim < my_partition->num_workers_rt && victim != ID) ||
+		/* in case of failure */ victim == -1
+	);
+
+	return victim;
+}
+
+PRIVATE unsigned int random_receiver_calls, random_receiver_early_exits;
+
+// Choose a random victim != ID from the list of potential victims
+static inline int random_victim(unsigned int victims, int ID)
+{
+	unsigned int i, j, n;
+
+	random_receiver_calls++;
+	random_receiver_early_exits++;
+
+	// No eligible victim? Return message to sender.
+	if (victims == 0) return -1;
+
+#define POTENTIAL_VICTIM(victims, n) ((victims) & BIT(n))
+
+	// Try to choose a victim at random
+	for (i = 0; i < 3; i++) {
+		int victim = rand_r(&seed) % my_partition->num_workers_rt;
+		if (POTENTIAL_VICTIM(victims, victim) && victim != ID) return victim;
+	}
+
+	random_receiver_early_exits--;
+
+	// Build list of potential victims and select one of them at random
+
+	unsigned int num_victims = count_one_bits(victims);
+	assert(0 < num_victims && num_victims < (unsigned int)my_partition->num_workers_rt);
+
+	// Length of array is upper-bounded by the number of workers, but
+	// num_victims is likely less than that, or we would have found a victim
+	// above
+	int potential_victims[num_victims];
+
+	for (i = 0, j = 0, n = victims; n != 0; i++, n >>= 1) {
+		if (POTENTIAL_VICTIM(n, 0)) {
+			potential_victims[j++] = i;
+		}
+	}
+
+	assert(j == num_victims);
+	// assert(is_sorted(potential_victims, num_victims));
+
+	int victim = potential_victims[rand_r(&seed) % num_victims];
+	assert(POTENTIAL_VICTIM(victims, victim));
+
+#undef POTENTIAL_VICTIM
+
+	assert(
+		/* in case of success */ (0 <= victim && victim < my_partition->num_workers_rt && victim != ID) ||
+		/* in case of failure */ victim == -1
+	);
+
+	return victim;
 }
 
 // To profile different parts of the runtime
@@ -387,7 +450,7 @@ int RT_init(void)
 
 	assert(channel_stack_top == MAXSTEAL);
 
-	victims[ID] = (int *)malloc(MAXWORKERS * sizeof(int));
+	victims = (int *)malloc(MAXWORKERS * sizeof(int));
 
 	ws_init();
 
@@ -434,7 +497,7 @@ int RT_exit(void)
 
 	deque_list_tl_delete(deque);
 
-	free(victims[ID]);
+	free(victims);
 
 	channel_free(chan_requests[ID]);
 #ifdef CHANNEL_CACHE
@@ -448,6 +511,10 @@ int RT_exit(void)
 	}
 
 	PARTITION_RESET();
+
+	LOG("Worker %d: random_receiver fast path (slow path): %3.0f %% (%3.0f %%)\n",
+		ID, (double)random_receiver_early_exits * 100 / random_receiver_calls,
+		(100 - ((double)random_receiver_early_exits * 100 / random_receiver_calls)));
 
 	return 0;
 }
@@ -465,59 +532,49 @@ Task *task_alloc(void)
 
 static int next_victim(struct steal_request *req)
 {
-	int victim = -1, i;
+	int victim = -1;
 
-#define VICTIMS victims[req->ID]
+#define POTENTIAL_VICTIM(n) ((req->victims) & BIT(n))
 
 	if (req->ID == ID) {
 		assert(req->try == 0);
 		// Initially: send message to random worker != ID
-		do { victim = rand_r(&seed) % num_workers; } while (victim == ID);
+		req->victims &= ~BIT(ID);
+		do { victim = rand_r(&seed) % my_partition->num_workers_rt; } while (victim == ID);
 	} else if (req->try == MAX_STEAL_ATTEMPTS) {
 		// Return steal request to thief
-		VICTIMS[ID] = -1;
+		req->victims &= ~BIT(ID);
+		//print_victims(req->victims, req->ID);
 		victim = req->ID;
 	} else {
 		// Forward steal request to different worker != ID, if possible
 		// TODO: Right now, we can only detect when the entire subtree rooted
 		// at worker ID is idle.
 		if (subtree_is_idle(ID)) {
-			mark_as_idle(VICTIMS, ID);
-			assert(VICTIMS[ID] == -1);
-			victim = parent(ID);
-			if (victim == req->ID && victim != -1) {
-				victim = parent(victim);
-			}
+			mark_as_idle(&req->victims, ID);
 		} else {
-			VICTIMS[ID] = -1;
-			// Try to choose a random victim
-			for (i = 0; i < 3; i++) {
-				int r = rand_r(&seed) % num_workers;
-				if (VICTIMS[r] != -1 && VICTIMS[r] != req->ID) {
-					victim = r;
-					break;
-				}
-			}
-			// If unsuccessful, choose a worker as high in the tree as possible
-			if (victim == -1) {
-				for (i = 0; i < num_workers; i++) {
-					if (VICTIMS[i] != -1 && VICTIMS[i] != req->ID) {
-						victim = i;
-						break;
-					}
-				}
-			}
+			req->victims &= ~BIT(ID);
 		}
+		assert(!POTENTIAL_VICTIM(ID));
+		victim = random_victim(req->victims, req->ID);
 	}
 
-#undef VICTIMS
+#undef POTENTIAL_VICTIM
 
 	if (victim == -1) {
 		// Couldn't find victim; return steal request to thief
+		assert(req->victims == 0);
 		victim = req->ID;
 	}
 
-	assert(0 <= victim && victim < num_workers && victim != ID);
+#if 0
+	if (victim == req->ID) {
+		LOG("%d -{%d}-> %d after %d tries (%u ones)\n",
+			ID, req->ID, victim, req->try, count_one_bits(req->victims));
+	}
+#endif
+
+	assert(0 <= victim && victim < my_partition->num_workers_rt && victim != ID);
 	assert(0 <= req->try && req->try <= MAX_STEAL_ATTEMPTS);
 
 	return victim;
@@ -602,7 +659,11 @@ static inline bool RECV_TASK(Task **task, bool idle)
 		}
 	}
 
-	if (!ret) try_send_steal_request(/* idle = */ idle);
+	if (!ret) {
+		try_send_steal_request(/* idle = */ idle);
+	} else {
+		waiting_for_tasks = false;
+	}
 
 	return ret;
 }
@@ -715,8 +776,6 @@ static void try_send_steal_request(bool idle)
 		struct steal_request req = STEAL_REQUEST_INIT;
 		req.state = idle ? STATE_IDLE : STATE_WORKING;
 		assert(req.try == 0);
-		// Avoid concurrent access to victims[ID]
-		if (!requested) INIT_VICTIMS();
 #ifdef STEAL_LASTVICTIM
 		SEND_REQ_WORKER(steal_from(&req, last_victim), &req);
 #elif defined STEAL_LASTTHIEF
@@ -754,16 +813,24 @@ static void decline_steal_request(struct steal_request *req)
 				FORGET_REQ(req);
 			} else {
 				// Pass steal request on to parent
+				mark_as_idle(&req->victims, ID);
 				req->state = STATE_FAILED;
 #ifdef DEBUG_TD
 				LOG("Worker %d sends STATE_FAILED to worker %d\n", ID, parent_worker);
 #endif
+#if 0
+				LOG("%d -{%d}-> %d (%d tries, %d victims unchecked)\n",
+					ID, req->ID, parent_worker, req->try, count_one_bits(req->victims));
+#endif
 				SEND_REQ_WORKER(parent_worker, req);
+				assert(!waiting_for_tasks);
+				waiting_for_tasks = true;
 			}
 		} else {
 			// Continue circulating the steal request
+			//print_victims(req->victims, ID);
 			req->try = 0;
-			INIT_VICTIMS();
+			req->victims = INIT_VICTIMS;
 			SEND_REQ_WORKER(next_victim(req), req);
 		}
 	} else {
