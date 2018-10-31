@@ -11,6 +11,7 @@
 #include "utest.h"
 UTEST_MAIN() {}
 #include "profile.h"
+#include "worker_tree.h"
 
 #define PARTITIONS 1
 #include "partition.h"
@@ -67,15 +68,15 @@ static struct task_indicator task_indicators[MAXWORKERS];
 /*
  * When a steal request is returned to its sender after MAX_STEAL_ATTEMPTS
  * unsuccessful attempts, the steal request changes state to STATE_FAILED and
- * is then passed on to parent_worker, which holds on to this request until it
+ * is then passed on to tree.parent, which holds on to this request until it
  * can send tasks in return. Thus, when a worker receives a steal request whose
- * state is STATE_FAILED, the sender is either left_worker or right_worker. At
- * this point, there is a "lifeline" between parent and child: the child will
- * not send further steal requests (unless MAXSTEAL > 1) until it receives new
- * work from its parent. We have switched from work stealing to work sharing.
- * This also means that backing off from work stealing by withdrawing a steal
- * request for a short while is no longer needed, as steal requests are
- * withdrawn automatically.
+ * state is STATE_FAILED, the sender is either tree.left_child or
+ * tree.right_child. At this point, there is a "lifeline" between parent and
+ * child: the child will not send further steal requests (unless MAXSTEAL > 1)
+ * until it receives new work from its parent. We have switched from work
+ * stealing to work sharing.  This also means that backing off from work
+ * stealing by withdrawing a steal request for a short while is no longer
+ * needed, as steal requests are withdrawn automatically.
  *
  * Termination occurs once worker 0 detects that both left and right subtrees
  * of workers are idle and worker 0 is itself idle.
@@ -198,8 +199,8 @@ static PRIVATE int requested;
 // requests and send the remaining one to its parent
 static PRIVATE int dropped_steal_requests;
 
-// When a worker backs off from stealing and waits for tasks from its parent
-static PRIVATE bool waiting_for_tasks_from_parent;
+// Worker tree related information is collected in this struct
+static PRIVATE WorkerTree tree;
 
 #ifdef STEAL_LASTVICTIM
 // ID of last victim
@@ -281,37 +282,6 @@ static int ws_init(void)
 	return 0;
 }
 
-static PRIVATE int left_worker = -1;
-static PRIVATE int right_worker = -1;
-static PRIVATE int parent_worker = -1;
-static PRIVATE int num_children = 0;
-static PRIVATE bool left_subtree_is_idle;
-static PRIVATE bool right_subtree_is_idle;
-
-static inline int left_child(int ID)
-// requires ID >= 0
-{
-	int child = 2*ID + 1;
-
-	return child < num_workers ? child : -1;
-}
-
-static inline int right_child(int ID)
-// requires ID >= 0
-{
-	int child = 2*ID + 2;
-
-	return child < num_workers ? child : -1;
-}
-
-static inline int parent(int ID)
-// requires ID >= 0
-// ensures ID == 0 ==> \result == -1
-// ensures ID > 0 ==> \result >= 0
-{
-	return ID % 2 != 0 ? (ID - 1) / 2 : (ID - 2) / 2;
-}
-
 static inline void mark_as_idle(unsigned int *victims, int n)
 // requires victims != NULL
 // requires -1 <= n < num_workers
@@ -319,9 +289,11 @@ static inline void mark_as_idle(unsigned int *victims, int n)
 	// Valid worker ID?
 	if (n == -1) return;
 
+	int maxID = my_partition->num_workers_rt-1;
+
 	if (n < num_workers) {
-		mark_as_idle(victims, left_child(n));
-		mark_as_idle(victims, right_child(n));
+		mark_as_idle(victims, left_child(n, maxID));
+		mark_as_idle(victims, right_child(n, maxID));
 		// Unset worker n
 		*victims &= ~BIT(n);
 	}
@@ -466,21 +438,7 @@ int RT_init(void)
 	atomic_set(&task_indicators[ID].tasks, 0);
 #endif
 
-	left_worker = left_child(ID);
-	if (left_worker != -1) num_children++;
-	else left_subtree_is_idle = true; // always
-
-	right_worker = right_child(ID);
-	if (right_worker != -1) num_children++;
-	else right_subtree_is_idle = true; // always
-
-	assert(left_worker != ID && right_worker != ID);
-	assert(0 <= num_children && num_children <= 2);
-
-	parent_worker = parent(ID);
-
-	MASTER assert(parent_worker == -1);
-	else assert(parent_worker >= 0);
+	worker_tree_init(&tree, ID, my_partition->num_workers_rt-1);
 
 	PROFILE_INIT(RUN_TASK);
 	PROFILE_INIT(ENQ_DEQ_TASK);
@@ -548,12 +506,12 @@ static int next_victim(struct steal_request *req)
 		victim = req->ID;
 	} else {
 		// Forward steal request to different worker != ID, if possible
-		if (left_subtree_is_idle && right_subtree_is_idle) {
+		if (tree.left_subtree_is_idle && tree.right_subtree_is_idle) {
 			mark_as_idle(&req->victims, ID);
-		} else if (left_subtree_is_idle) {
-			mark_as_idle(&req->victims, left_worker);
-		} else if (right_subtree_is_idle) {
-			mark_as_idle(&req->victims, right_worker);
+		} else if (tree.left_subtree_is_idle) {
+			mark_as_idle(&req->victims, tree.left_child);
+		} else if (tree.right_subtree_is_idle) {
+			mark_as_idle(&req->victims, tree.right_child);
 		}
 		assert(!POTENTIAL_VICTIM(ID));
 		victim = random_victim(req->victims, req->ID);
@@ -630,13 +588,13 @@ static inline bool RECV_REQ(struct steal_request *req)
 #ifdef DEBUG_TD
 			LOG("Worker %d receives STATE_FAILED from worker %d\n", ID, req->ID);
 #endif
-			assert(req->ID == left_worker || req->ID == right_worker);
-			if (req->ID == left_worker) {
-				assert(!left_subtree_is_idle);
-				left_subtree_is_idle = true;
+			assert(req->ID == tree.left_child || req->ID == tree.right_child);
+			if (req->ID == tree.left_child) {
+				assert(!tree.left_subtree_is_idle);
+				tree.left_subtree_is_idle = true;
 			} else {
-				assert(!right_subtree_is_idle);
-				right_subtree_is_idle = true;
+				assert(!tree.right_subtree_is_idle);
+				tree.right_subtree_is_idle = true;
 			}
 			// Hold on to this steal request
 			BACKOFF_QUEUE_PUSH(req);
@@ -669,7 +627,7 @@ static inline bool RECV_TASK(Task **task, bool idle)
 	if (!ret) {
 		try_send_steal_request(/* idle = */ idle);
 	} else {
-		if (waiting_for_tasks_from_parent) {
+		if (tree.waiting_for_tasks) {
 			assert(requested == MAXSTEAL);
 			assert(channel_stack_top == MAXSTEAL);
 			// Adjust value of requested by MAXSTEAL-1, the number of steal
@@ -677,7 +635,7 @@ static inline bool RECV_TASK(Task **task, bool idle)
 			// requested = requested - (MAXSTEAL-1) =
 			//           = MAXSTEAL - MAXSTEAL + 1 = 1
 			requested = 1;
-			waiting_for_tasks_from_parent = false;
+			tree.waiting_for_tasks = false;
 			dropped_steal_requests = 0;
 #if MAXSTEAL > 1
 		} else {
@@ -719,7 +677,7 @@ static PRIVATE bool quiescent;
 static inline void detect_termination(void)
 {
 	assert(ID == MASTER_ID);
-	assert(left_subtree_is_idle && right_subtree_is_idle);
+	assert(tree.left_subtree_is_idle && tree.right_subtree_is_idle);
 	assert(!quiescent);
 
 #ifdef DEBUG_TD
@@ -758,12 +716,12 @@ ASYNC_ACTION(notify_workers)
 {
 	assert(!tasking_finished);
 
-	if (left_worker != -1) {
-		async_action(notify_workers, chan_tasks[left_worker][0]);
+	if (tree.left_child != -1) {
+		async_action(notify_workers, chan_tasks[tree.left_child][0]);
 	}
 
-	if (right_worker != -1) {
-		async_action(notify_workers, chan_tasks[right_worker][0]);
+	if (tree.right_child != -1) {
+		async_action(notify_workers, chan_tasks[tree.right_child][0]);
 	}
 
 	WORKER num_tasks_exec--;
@@ -841,7 +799,7 @@ static void decline_steal_request(struct steal_request *req)
 	if (req->ID == ID) {
 		// Steal request was returned
 		assert(req->victims == 0);
-		if (req->state == STATE_IDLE && left_subtree_is_idle && right_subtree_is_idle) {
+		if (req->state == STATE_IDLE && tree.left_subtree_is_idle && tree.right_subtree_is_idle) {
 #if MAXSTEAL > 1
 			// Is this the last of MAXSTEAL steal requests? If so, we can
 			// either detect termination, knowing that all workers are idle (ID
@@ -859,11 +817,11 @@ static void decline_steal_request(struct steal_request *req)
 				} else {
 					req->state = STATE_FAILED;
 #ifdef DEBUG_TD
-					LOG("Worker %d sends STATE_FAILED to worker %d\n", ID, parent_worker);
+					LOG("Worker %d sends STATE_FAILED to worker %d\n", ID, tree.parent);
 #endif
-					SEND_REQ_WORKER(parent_worker, req);
-					assert(!waiting_for_tasks_from_parent);
-					waiting_for_tasks_from_parent = true;
+					SEND_REQ_WORKER(tree.parent, req);
+					assert(!tree.waiting_for_tasks);
+					tree.waiting_for_tasks = true;
 				}
 			} else {
 #ifdef DEBUG_TD
@@ -871,7 +829,7 @@ static void decline_steal_request(struct steal_request *req)
 #endif
 				// The master can safely run this assertion as it is never
 				// waiting for tasks from its parent (it has none).
-				assert(!waiting_for_tasks_from_parent);
+				assert(!tree.waiting_for_tasks);
 				// Don't decrement requested to make sure no new steal request
 				// is initiated!
 				CHANNEL_PUSH(req->chan);
@@ -886,11 +844,11 @@ static void decline_steal_request(struct steal_request *req)
 			} else {
 				req->state = STATE_FAILED;
 #ifdef DEBUG_TD
-				LOG("Worker %d sends STATE_FAILED to worker %d\n", ID, parent_worker);
+				LOG("Worker %d sends STATE_FAILED to worker %d\n", ID, tree.parent);
 #endif
-				SEND_REQ_WORKER(parent_worker, req);
-				assert(!waiting_for_tasks_from_parent);
-				waiting_for_tasks_from_parent = true;
+				SEND_REQ_WORKER(tree.parent, req);
+				assert(!tree.waiting_for_tasks);
+				tree.waiting_for_tasks = true;
 			}
 
 #endif // MAXSTEAL
@@ -1065,7 +1023,7 @@ static inline bool handle(struct steal_request *req)
 	if (req->state == STATE_FAILED) {
 		// Don't recirculate this steal request
 		// TODO: Is this a reasonable decision?
-		assert(req->ID == left_worker || req->ID == right_worker);
+		assert(req->ID == tree.left_child || req->ID == tree.right_child);
 	} else {
 		HAVE_NO_TASKS();
 		decline_steal_request(req);
@@ -1081,14 +1039,14 @@ static inline void share_work(void)
 	while (!BACKOFF_QUEUE_EMPTY()) {
 		// Don't dequeue yet
 		struct steal_request *req = BACKOFF_QUEUE_HEAD();
-		assert(req->ID == left_worker || req->ID == right_worker);
+		assert(req->ID == tree.left_child || req->ID == tree.right_child);
 		if (handle(req)) {
-			if (req->ID == left_worker) {
-				assert(left_subtree_is_idle);
-				left_subtree_is_idle = false;
+			if (req->ID == tree.left_child) {
+				assert(tree.left_subtree_is_idle);
+				tree.left_subtree_is_idle = false;
 			} else {
-				assert(right_subtree_is_idle);
-				right_subtree_is_idle = false;
+				assert(tree.right_subtree_is_idle);
+				tree.right_subtree_is_idle = false;
 			}
 			// Dequeue/Discard
 			(void)BACKOFF_QUEUE_POP();
