@@ -16,10 +16,6 @@ UTEST_MAIN() {}
 #include "partition.h"
 #include "partition.c"
 
-#if MAXSTEAL > 1
-#error "MAXSTEAL > 1 not yet supported"
-#endif
-
 #define LOG(...) { printf(__VA_ARGS__); fflush(stdout); }
 #define UNUSED(x) x __attribute__((unused))
 
@@ -150,7 +146,8 @@ static inline void print_steal_req(struct steal_request *req)
 #endif
 }
 
-#define BACKOFF_QUEUE_SIZE (2*MAXSTEAL + 1)
+// One extra entry to distinguish full and empty queues
+#define BACKOFF_QUEUE_SIZE (2 + 1)
 
 static PRIVATE struct steal_request backoff_queue[BACKOFF_QUEUE_SIZE];
 static PRIVATE int backoff_queue_hd = 0, backoff_queue_tl = 0;
@@ -197,8 +194,12 @@ static inline struct steal_request *BACKOFF_QUEUE_HEAD(void)
 // 0 <= requested <= MAXSTEAL
 static PRIVATE int requested;
 
+// Before a worker can become quiescent, it has to drop MAXSTEAL-1 steal
+// requests and send the remaining one to its parent
+static PRIVATE int dropped_steal_requests;
+
 // When a worker backs off from stealing and waits for tasks from its parent
-static PRIVATE bool waiting_for_tasks;
+static PRIVATE bool waiting_for_tasks_from_parent;
 
 #ifdef STEAL_LASTVICTIM
 // ID of last victim
@@ -284,6 +285,8 @@ static PRIVATE int left_worker = -1;
 static PRIVATE int right_worker = -1;
 static PRIVATE int parent_worker = -1;
 static PRIVATE int num_children = 0;
+static PRIVATE bool left_subtree_is_idle;
+static PRIVATE bool right_subtree_is_idle;
 
 static inline int left_child(int ID)
 // requires ID >= 0
@@ -307,11 +310,6 @@ static inline int parent(int ID)
 // ensures ID > 0 ==> \result >= 0
 {
 	return ID % 2 != 0 ? (ID - 1) / 2 : (ID - 2) / 2;
-}
-
-static inline bool subtree_is_idle(UNUSED(int ID))
-{
-	return backoff_queue_num_entries == num_children * MAXSTEAL;
 }
 
 static inline void mark_as_idle(unsigned int *victims, int n)
@@ -470,9 +468,11 @@ int RT_init(void)
 
 	left_worker = left_child(ID);
 	if (left_worker != -1) num_children++;
+	else left_subtree_is_idle = true; // always
 
 	right_worker = right_child(ID);
 	if (right_worker != -1) num_children++;
+	else right_subtree_is_idle = true; // always
 
 	assert(left_worker != ID && right_worker != ID);
 	assert(0 <= num_children && num_children <= 2);
@@ -534,26 +534,26 @@ static int next_victim(struct steal_request *req)
 {
 	int victim = -1;
 
+	req->victims &= ~BIT(ID);
+
 #define POTENTIAL_VICTIM(n) ((req->victims) & BIT(n))
 
 	if (req->ID == ID) {
 		assert(req->try == 0);
 		// Initially: send message to random worker != ID
-		req->victims &= ~BIT(ID);
 		do { victim = rand_r(&seed) % my_partition->num_workers_rt; } while (victim == ID);
 	} else if (req->try == MAX_STEAL_ATTEMPTS) {
 		// Return steal request to thief
-		req->victims &= ~BIT(ID);
 		//print_victims(req->victims, req->ID);
 		victim = req->ID;
 	} else {
 		// Forward steal request to different worker != ID, if possible
-		// TODO: Right now, we can only detect when the entire subtree rooted
-		// at worker ID is idle.
-		if (subtree_is_idle(ID)) {
+		if (left_subtree_is_idle && right_subtree_is_idle) {
 			mark_as_idle(&req->victims, ID);
-		} else {
-			req->victims &= ~BIT(ID);
+		} else if (left_subtree_is_idle) {
+			mark_as_idle(&req->victims, left_worker);
+		} else if (right_subtree_is_idle) {
+			mark_as_idle(&req->victims, right_worker);
 		}
 		assert(!POTENTIAL_VICTIM(ID));
 		victim = random_victim(req->victims, req->ID);
@@ -631,6 +631,13 @@ static inline bool RECV_REQ(struct steal_request *req)
 			LOG("Worker %d receives STATE_FAILED from worker %d\n", ID, req->ID);
 #endif
 			assert(req->ID == left_worker || req->ID == right_worker);
+			if (req->ID == left_worker) {
+				assert(!left_subtree_is_idle);
+				left_subtree_is_idle = true;
+			} else {
+				assert(!right_subtree_is_idle);
+				right_subtree_is_idle = true;
+			}
 			// Hold on to this steal request
 			BACKOFF_QUEUE_PUSH(req);
 			ret = channel_receive(chan_requests[ID], req, sizeof(*req));
@@ -662,7 +669,33 @@ static inline bool RECV_TASK(Task **task, bool idle)
 	if (!ret) {
 		try_send_steal_request(/* idle = */ idle);
 	} else {
-		waiting_for_tasks = false;
+		if (waiting_for_tasks_from_parent) {
+			assert(requested == MAXSTEAL);
+			assert(channel_stack_top == MAXSTEAL);
+			// Adjust value of requested by MAXSTEAL-1, the number of steal
+			// requests that have been dropped:
+			// requested = requested - (MAXSTEAL-1) =
+			//           = MAXSTEAL - MAXSTEAL + 1 = 1
+			requested = 1;
+			waiting_for_tasks_from_parent = false;
+			dropped_steal_requests = 0;
+#if MAXSTEAL > 1
+		} else {
+			// If we have dropped one or more steal requests before receiving
+			// tasks, adjust requested to make sure that we can send MAXSTEAL
+			// steal requests again.
+			if (dropped_steal_requests > 0) {
+				assert(requested > dropped_steal_requests);
+				requested -= dropped_steal_requests;
+				dropped_steal_requests = 0;
+			}
+		}
+#else
+		}
+#endif
+		requested--;
+		assert(0 <= requested && requested < MAXSTEAL);
+		assert(dropped_steal_requests == 0);
 	}
 
 	return ret;
@@ -686,10 +719,8 @@ static PRIVATE bool quiescent;
 static inline void detect_termination(void)
 {
 	assert(ID == MASTER_ID);
-	assert(subtree_is_idle(MASTER_ID));
-#if MAXSTEAL == 1
+	assert(left_subtree_is_idle && right_subtree_is_idle);
 	assert(!quiescent);
-#endif
 
 #ifdef DEBUG_TD
 	LOG(">>> Worker %d detects termination <<<\n", ID);
@@ -772,7 +803,10 @@ static void try_send_steal_request(bool idle)
 			num_steals_exec_recently = 0;
 		}
 #endif
-		assert(requested + channel_stack_top == MAXSTEAL);
+		// The following assertion no longer holds because we may increment
+		// channel_stack_top without decrementing requested
+		// (see decline_steal_request):
+		// assert(requested + channel_stack_top == MAXSTEAL);
 		struct steal_request req = STEAL_REQUEST_INIT;
 		req.state = idle ? STATE_IDLE : STATE_WORKING;
 		assert(req.try == 0);
@@ -806,26 +840,61 @@ static void decline_steal_request(struct steal_request *req)
 
 	if (req->ID == ID) {
 		// Steal request was returned
-		if (req->state == STATE_IDLE && subtree_is_idle(ID)) {
+		assert(req->victims == 0);
+		if (req->state == STATE_IDLE && left_subtree_is_idle && right_subtree_is_idle) {
+#if MAXSTEAL > 1
+			// Is this the last of MAXSTEAL steal requests? If so, we can
+			// either detect termination, knowing that all workers are idle (ID
+			// == MASTER_ID), or we can pass this steal request on to our
+			// parent and become quiescent (ID != MASTER_ID). If this is not
+			// the last of MAXSTEAL steal requests, we drop it and wait for the
+			// next steal request to be returned.
+			if (requested == MAXSTEAL && channel_stack_top == MAXSTEAL-1) {
+				// MAXSTEAL-1 steal requests have been dropped as evidenced by
+				// the number of channels stashed away in channel_stack.
+				assert(dropped_steal_requests == MAXSTEAL-1);
+				MASTER {
+					detect_termination();
+					FORGET_REQ(req);
+				} else {
+					req->state = STATE_FAILED;
+#ifdef DEBUG_TD
+					LOG("Worker %d sends STATE_FAILED to worker %d\n", ID, parent_worker);
+#endif
+					SEND_REQ_WORKER(parent_worker, req);
+					assert(!waiting_for_tasks_from_parent);
+					waiting_for_tasks_from_parent = true;
+				}
+			} else {
+#ifdef DEBUG_TD
+				LOG("Worker %d drops steal request\n", ID);
+#endif
+				// The master can safely run this assertion as it is never
+				// waiting for tasks from its parent (it has none).
+				assert(!waiting_for_tasks_from_parent);
+				// Don't decrement requested to make sure no new steal request
+				// is initiated!
+				CHANNEL_PUSH(req->chan);
+				dropped_steal_requests++;
+			}
+
+#else // MAXSTEAL == 1
+
 			MASTER {
-				// TODO: Is this the best place to detect termination?
 				detect_termination();
 				FORGET_REQ(req);
 			} else {
-				// Pass steal request on to parent
-				mark_as_idle(&req->victims, ID);
 				req->state = STATE_FAILED;
 #ifdef DEBUG_TD
 				LOG("Worker %d sends STATE_FAILED to worker %d\n", ID, parent_worker);
 #endif
-#if 0
-				LOG("%d -{%d}-> %d (%d tries, %d victims unchecked)\n",
-					ID, req->ID, parent_worker, req->try, count_one_bits(req->victims));
-#endif
 				SEND_REQ_WORKER(parent_worker, req);
-				assert(!waiting_for_tasks);
-				waiting_for_tasks = true;
+				assert(!waiting_for_tasks_from_parent);
+				waiting_for_tasks_from_parent = true;
 			}
+
+#endif // MAXSTEAL
+
 		} else {
 			// Continue circulating the steal request
 			//print_victims(req->victims, ID);
@@ -1012,7 +1081,15 @@ static inline void share_work(void)
 	while (!BACKOFF_QUEUE_EMPTY()) {
 		// Don't dequeue yet
 		struct steal_request *req = BACKOFF_QUEUE_HEAD();
+		assert(req->ID == left_worker || req->ID == right_worker);
 		if (handle(req)) {
+			if (req->ID == left_worker) {
+				assert(left_subtree_is_idle);
+				left_subtree_is_idle = false;
+			} else {
+				assert(right_subtree_is_idle);
+				right_subtree_is_idle = false;
+			}
 			// Dequeue/Discard
 			(void)BACKOFF_QUEUE_POP();
 		} else {
@@ -1080,8 +1157,6 @@ void *schedule(UNUSED(void *args))
 			HAVE_TASKS();
 		}
 #endif
-		requested--;
-		assert(0 <= requested && requested < MAXSTEAL);
 #if STEAL == adaptive
 		num_steals_exec_recently++;
 #endif
@@ -1164,8 +1239,6 @@ empty_local_queue:
 		HAVE_TASKS();
 	}
 #endif
-	requested--;
-	assert(0 <= requested && requested < MAXSTEAL);
 #if STEAL == adaptive
 	num_steals_exec_recently++;
 #endif
@@ -1258,8 +1331,6 @@ void RT_force_future(Channel *chan, void *data, unsigned int size)
 			HAVE_TASKS();
 		}
 #endif
-		requested--;
-		assert(0 <= requested && requested < MAXSTEAL);
 #if STEAL == adaptive
 		num_steals_exec_recently++;
 #endif
