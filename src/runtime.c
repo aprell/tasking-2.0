@@ -142,49 +142,16 @@ static inline void print_steal_req(struct steal_request *req)
 #endif
 }
 
-// One extra entry to distinguish full and empty queues
-#define BACKOFF_QUEUE_SIZE (2 + 1)
+#define BOUNDED_QUEUE_ELEM_TYPE struct steal_request
+#include "bounded_queue.h"
 
-static PRIVATE struct steal_request backoff_queue[BACKOFF_QUEUE_SIZE];
-static PRIVATE int backoff_queue_hd = 0, backoff_queue_tl = 0;
-static PRIVATE int backoff_queue_num_entries = 0;
+// Every worker has a queue where it keeps the failed steal requests of its
+// children until work can be shared
+static PRIVATE BoundedQueue *work_sharing_requests;
 
-static inline bool BACKOFF_QUEUE_EMPTY(void)
-{
-	return backoff_queue_hd == backoff_queue_tl;
-}
-
-static inline bool BACKOFF_QUEUE_FULL(void)
-{
-	return (backoff_queue_tl + 1) % BACKOFF_QUEUE_SIZE == backoff_queue_hd;
-}
-
-static inline void BACKOFF_QUEUE_PUSH(struct steal_request *req)
-{
-	assert(!BACKOFF_QUEUE_FULL());
-	assert(backoff_queue_num_entries < BACKOFF_QUEUE_SIZE - 1);
-
-	backoff_queue[backoff_queue_tl] = *req;
-	backoff_queue_tl = (backoff_queue_tl + 1) % BACKOFF_QUEUE_SIZE;
-	backoff_queue_num_entries++;
-}
-
-static inline struct steal_request *BACKOFF_QUEUE_POP(void)
-{
-	assert(!BACKOFF_QUEUE_EMPTY());
-	assert(backoff_queue_num_entries > 0);
-
-	struct steal_request *req = &backoff_queue[backoff_queue_hd];
-	backoff_queue_hd = (backoff_queue_hd + 1) % BACKOFF_QUEUE_SIZE;
-	backoff_queue_num_entries--;
-
-	return req;
-}
-
-static inline struct steal_request *BACKOFF_QUEUE_HEAD(void)
-{
-	return &backoff_queue[backoff_queue_hd];
-}
+#define ENQUEUE_WORK_SHARING_REQUEST(req)   bounded_queue_enqueue(work_sharing_requests, *(req))
+#define DEQUEUE_WORK_SHARING_REQUEST(req)   bounded_queue_dequeue(work_sharing_requests)
+#define NEXT_WORK_SHARING_REQUEST(req)      bounded_queue_head(work_sharing_requests)
 
 // A worker can have up to MAXSTEAL outstanding steal requests:
 // 0 <= requested <= MAXSTEAL
@@ -406,6 +373,7 @@ int RT_init(void)
 		chan_requests[ID] = channel_alloc(sizeof(struct steal_request), MAXSTEAL * num_workers, MPSC);
 	}
 
+	// At most MAXSTEAL steal requests and thus different channels
 	channel_stack = bounded_stack_alloc(MAXSTEAL);
 
 	// Being able to send N steal requests requires either a single MPSC or N
@@ -435,6 +403,10 @@ int RT_init(void)
 	atomic_set(&task_indicators[ID].tasks, 0);
 #endif
 
+	// A worker has between zero and two children
+	work_sharing_requests = bounded_queue_alloc(2);
+
+	// The worker tree is a complete binary tree with worker 0 at the root
 	worker_tree_init(&tree, ID, my_partition->num_workers_rt-1);
 
 	PROFILE_INIT(RUN_TASK);
@@ -466,6 +438,8 @@ int RT_exit(void)
 	}
 
 	bounded_stack_free(channel_stack);
+
+	bounded_queue_free(work_sharing_requests);
 
 	PARTITION_RESET();
 
@@ -596,7 +570,7 @@ static inline bool RECV_REQ(struct steal_request *req)
 				tree.right_subtree_is_idle = true;
 			}
 			// Hold on to this steal request
-			BACKOFF_QUEUE_PUSH(req);
+			ENQUEUE_WORK_SHARING_REQUEST(req);
 			ret = channel_receive(chan_requests[ID], req, sizeof(*req));
 		}
 		// No special treatment for other states
@@ -1035,9 +1009,9 @@ static inline bool handle(struct steal_request *req)
 // requests that cannot be answered with tasks enqueued
 static inline void share_work(void)
 {
-	while (!BACKOFF_QUEUE_EMPTY()) {
+	while (!bounded_queue_empty(work_sharing_requests)) {
 		// Don't dequeue yet
-		struct steal_request *req = BACKOFF_QUEUE_HEAD();
+		struct steal_request *req = NEXT_WORK_SHARING_REQUEST();
 		assert(req->ID == tree.left_child || req->ID == tree.right_child);
 		if (handle(req)) {
 			if (req->ID == tree.left_child) {
@@ -1048,7 +1022,7 @@ static inline void share_work(void)
 				tree.right_subtree_is_idle = false;
 			}
 			// Dequeue/Discard
-			(void)BACKOFF_QUEUE_POP();
+			(void)DEQUEUE_WORK_SHARING_REQUEST();
 		} else {
 			break;
 		}
@@ -1059,7 +1033,7 @@ static inline void share_work(void)
 // Can be called from user code
 void RT_check_for_steal_requests(void)
 {
-	if (!BACKOFF_QUEUE_EMPTY()) {
+	if (!bounded_queue_empty(work_sharing_requests)) {
 		share_work();
 	}
 
