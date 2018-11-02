@@ -5,7 +5,7 @@
 #include <assert.h>
 #include <unistd.h>
 #include "deque_list_tl.h"
-#include "stack.h"
+#include "task_stack.h"
 
 struct deque_list_tl {
 	// List must be accessible from either end
@@ -15,7 +15,7 @@ struct deque_list_tl {
 	// Record number of (successful) steals
 	unsigned int num_steals;
 	// Pool of free task objects
-	Stack *freelist;
+	TaskStack *freelist;
 };
 
 DequeListTL *deque_list_tl_new(void)
@@ -34,7 +34,7 @@ DequeListTL *deque_list_tl_new(void)
 	dq->tail = dummy;
 	dq->num_tasks = 0;
 	dq->num_steals = 0;
-	dq->freelist = stack_new();
+	dq->freelist = task_stack_new();
 
 	return dq;
 }
@@ -52,7 +52,7 @@ void deque_list_tl_delete(DequeListTL *dq)
 		// Free dummy node
 		task_delete(dq->head);
 		// Free allocations that are still cached
-		stack_delete(dq->freelist);
+		task_stack_delete(dq->freelist);
 		free(dq);
 	}
 }
@@ -61,10 +61,10 @@ Task *deque_list_tl_task_new(DequeListTL *dq)
 {
 	assert(dq != NULL);
 
-	if (stack_empty(dq->freelist))
+	if (task_stack_empty(dq->freelist))
 		return task_new();
 
-	return stack_pop(dq->freelist);
+	return task_stack_pop(dq->freelist);
 }
 
 void deque_list_tl_task_cache(DequeListTL *dq, Task *task)
@@ -72,7 +72,7 @@ void deque_list_tl_task_cache(DequeListTL *dq, Task *task)
 	assert(dq != NULL);
 	assert(task != NULL);
 
-	stack_push(dq->freelist, task_zero(task));
+	task_stack_push(dq->freelist, task_zero(task));
 }
 
 // Add list of tasks [head, tail] of length len to the front of dq
@@ -454,7 +454,7 @@ UTEST()
 		deque_list_tl_push(deq, t);
 	}
 
-	check_equal(stack_empty(deq->freelist), true);
+	check_equal(task_stack_empty(deq->freelist), true);
 	check_equal(deque_list_tl_empty(deq), false);
 	check_equal(deque_list_tl_num_tasks(deq), N);
 

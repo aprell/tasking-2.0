@@ -38,7 +38,7 @@ PRM_task.c \
 tasking.c \
 tasking_internal.c \
 deque_list_tl.c \
-stack.c
+task_stack.c
 
 runtime_SRCS = \
 runtime.c

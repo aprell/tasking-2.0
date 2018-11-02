@@ -1,5 +1,5 @@
-#ifndef STACK_H
-#define STACK_H
+#ifndef TASK_STACK_H
+#define TASK_STACK_H
 
 #include <stdbool.h>
 #include "task.h"
@@ -10,13 +10,13 @@
 //                                                                          //
 //==========================================================================//
 
-typedef struct stack Stack;
+typedef struct task_stack TaskStack;
 
-Stack *stack_new(void);
-void stack_delete(Stack *stack);
-bool stack_empty(Stack *stack);
+TaskStack *task_stack_new(void);
+void task_stack_delete(TaskStack *stack);
+bool task_stack_empty(TaskStack *stack);
 
-void stack_push(Stack *stack, Task *task);
-Task *stack_pop(Stack *stack);
+void task_stack_push(TaskStack *stack, Task *task);
+Task *task_stack_pop(TaskStack *stack);
 
-#endif // STACK_H
+#endif // TASK_STACK_H

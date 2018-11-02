@@ -1,17 +1,17 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <assert.h>
-#include "stack.h"
+#include "task_stack.h"
 
-struct stack {
+struct task_stack {
 	Task *top;
 };
 
-Stack *stack_new(void)
+TaskStack *task_stack_new(void)
 {
-	Stack *stack = (Stack *)malloc(sizeof(Stack));
+	TaskStack *stack = (TaskStack *)malloc(sizeof(TaskStack));
 	if (!stack) {
-		fprintf(stderr, "Warning: stack_new failed\n");
+		fprintf(stderr, "Warning: task_stack_new failed\n");
 		return NULL;
 	}
 
@@ -19,30 +19,30 @@ Stack *stack_new(void)
 	return stack;
 }
 
-void stack_delete(Stack *stack)
+void task_stack_delete(TaskStack *stack)
 {
 	Task *task;
 
 	if (!stack)
 		return;
 
-	while ((task = stack_pop(stack)) != NULL) {
+	while ((task = task_stack_pop(stack)) != NULL) {
 		// We assume all tasks are heap allocated
 		free(task);
 	}
 
-	assert(stack_empty(stack));
+	assert(task_stack_empty(stack));
 	free(stack);
 }
 
-bool stack_empty(Stack *stack)
+bool task_stack_empty(TaskStack *stack)
 {
 	assert(stack != NULL);
 
 	return stack->top == NULL;
 }
 
-void stack_push(Stack *stack, Task *task)
+void task_stack_push(TaskStack *stack, Task *task)
 {
 	assert(stack != NULL);
 	assert(task != NULL);
@@ -51,13 +51,13 @@ void stack_push(Stack *stack, Task *task)
 	stack->top = task;
 }
 
-Task *stack_pop(Stack *stack)
+Task *task_stack_pop(TaskStack *stack)
 {
 	assert(stack != NULL);
 	
 	Task *task;
 
-	if (stack_empty(stack))
+	if (task_stack_empty(stack))
 		return NULL;
 
 	task = stack->top;
@@ -69,7 +69,7 @@ Task *stack_pop(Stack *stack)
 
 //==========================================================================//
 
-#ifdef TEST_STACK
+#ifdef TEST_TASK_STACK
 
 //==========================================================================//
 
@@ -81,42 +81,42 @@ typedef struct {
 
 UTEST()
 {
-	puts("Testing Stack");
+	puts("Testing TaskStack");
 
-	Stack *s;
+	TaskStack *s;
 	int i;
 	
-	s = stack_new();
-	check_equal(stack_empty(s), true);
-	check_equal(stack_pop(s), NULL);
+	s = task_stack_new();
+	check_equal(task_stack_empty(s), true);
+	check_equal(task_stack_pop(s), NULL);
 
 	for (i = 0; i < 10; i++) {
 		Task *t = task_new();
 		check_not_equal(t, NULL);
 		Data *d = (Data *)task_data(t);
 		*d = (Data){ i, i+1 };
-		stack_push(s, t);
+		task_stack_push(s, t);
 	}
 
-	check_equal(stack_empty(s), false);
+	check_equal(task_stack_empty(s), false);
 
 	for (; i > 0; i--) {
-		Task *t = stack_pop(s);
+		Task *t = task_stack_pop(s);
 		Data *d = (Data *)task_data(t);
 		check_equal(d->a, i-1);
 		check_equal(d->b, i);
 		task_delete(t);
 	}
 
-	check_equal(stack_empty(s), true);
-	check_equal(stack_pop(s), NULL);
-	stack_delete(s);
+	check_equal(task_stack_empty(s), true);
+	check_equal(task_stack_pop(s), NULL);
+	task_stack_delete(s);
 
 	puts("Done");
 }
 
 //==========================================================================//
 
-#endif // TEST_STACK
+#endif // TEST_TASK_STACK
 
 //==========================================================================//
