@@ -29,20 +29,15 @@ static Channel *chan_requests[MAXWORKERS];
 // Worker -> worker: tasks (SPSC)
 static Channel *chan_tasks[MAXWORKERS][MAXSTEAL];
 
-// Every worker needs to keep track of which channels it can use for the next
-// steal request
-static PRIVATE Channel *channel_stack[MAXSTEAL];
-static PRIVATE int channel_stack_top;
+#define BOUNDED_STACK_ELEM_TYPE Channel *
+#include "bounded_stack.h"
 
-#define CHANNEL_PUSH(chan) \
-do { \
-	assert(0 <= channel_stack_top && channel_stack_top < MAXSTEAL); \
-	channel_stack[channel_stack_top++] = chan; \
-} while (0)
+// Every worker maintains a stack of (recycled) channels to keep track of which
+// channels to use for the next steal requests
+static PRIVATE BoundedStack *channel_stack;
 
-#define CHANNEL_POP() \
-	(assert(0 < channel_stack_top && channel_stack_top <= MAXSTEAL), \
-	 channel_stack[--channel_stack_top])
+#define CHANNEL_PUSH(chan)    bounded_stack_push(channel_stack, chan)
+#define CHANNEL_POP()        *bounded_stack_pop(channel_stack)
 
 #ifdef VICTIM_CHECK
 
@@ -411,6 +406,8 @@ int RT_init(void)
 		chan_requests[ID] = channel_alloc(sizeof(struct steal_request), MAXSTEAL * num_workers, MPSC);
 	}
 
+	channel_stack = bounded_stack_alloc(MAXSTEAL);
+
 	// Being able to send N steal requests requires either a single MPSC or N
 	// SPSC channels
 	for (i = 0; i < MAXSTEAL; i++) {
@@ -418,7 +415,7 @@ int RT_init(void)
 		CHANNEL_PUSH(chan_tasks[ID][i]);
 	}
 
-	assert(channel_stack_top == MAXSTEAL);
+	assert(channel_stack->top == MAXSTEAL);
 
 	victims = (int *)malloc(MAXWORKERS * sizeof(int));
 
@@ -467,6 +464,8 @@ int RT_exit(void)
 		assert(!channel_peek(chan_tasks[ID][i]));
 		channel_free(chan_tasks[ID][i]);
 	}
+
+	bounded_stack_free(channel_stack);
 
 	PARTITION_RESET();
 
@@ -629,7 +628,7 @@ static inline bool RECV_TASK(Task **task, bool idle)
 	} else {
 		if (tree.waiting_for_tasks) {
 			assert(requested == MAXSTEAL);
-			assert(channel_stack_top == MAXSTEAL);
+			assert(channel_stack->top == MAXSTEAL);
 			// Adjust value of requested by MAXSTEAL-1, the number of steal
 			// requests that have been dropped:
 			// requested = requested - (MAXSTEAL-1) =
@@ -762,9 +761,9 @@ static void try_send_steal_request(bool idle)
 		}
 #endif
 		// The following assertion no longer holds because we may increment
-		// channel_stack_top without decrementing requested
+		// channel_stack->top without decrementing requested
 		// (see decline_steal_request):
-		// assert(requested + channel_stack_top == MAXSTEAL);
+		// assert(requested + channel_stack->top == MAXSTEAL);
 		struct steal_request req = STEAL_REQUEST_INIT;
 		req.state = idle ? STATE_IDLE : STATE_WORKING;
 		assert(req.try == 0);
@@ -807,7 +806,7 @@ static void decline_steal_request(struct steal_request *req)
 			// parent and become quiescent (ID != MASTER_ID). If this is not
 			// the last of MAXSTEAL steal requests, we drop it and wait for the
 			// next steal request to be returned.
-			if (requested == MAXSTEAL && channel_stack_top == MAXSTEAL-1) {
+			if (requested == MAXSTEAL && channel_stack->top == MAXSTEAL-1) {
 				// MAXSTEAL-1 steal requests have been dropped as evidenced by
 				// the number of channels stashed away in channel_stack.
 				assert(dropped_steal_requests == MAXSTEAL-1);

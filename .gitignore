@@ -46,5 +46,6 @@ include/terra_tasking_mod
 include/terra_tasking_ext
 src/terra_tasking_mod
 src/terra_tasking_ext
+src/bounded_stack_test
 
 benchmark*
