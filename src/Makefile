@@ -8,8 +8,8 @@ CPPFLAGS += -DSPLIT=adaptive
 CPPFLAGS += -DMAXSTEAL=1
 CPPFLAGS += -DCPUFREQ=$(cpu_freq_ghz)
 #CPPFLAGS += -DCPUFREQ=1.05263 # Xeon Phi 5110P
-CPPFLAGS += -DCHANNEL_CACHE=100
-#CPPFLAGS += -DLAZY_FUTURES
+#CPPFLAGS += -DCHANNEL_CACHE=100
+CPPFLAGS += -DLAZY_FUTURES
 
 INCLUDE += -Ichannel_shm
 CFLAGS += -pthread
@@ -30,79 +30,69 @@ ifeq ($(USE_COZ),1)
   IMPORTS += -ldl
 endif
 
-channel_SRCS = \
-channel.c
-
-tasking_SRCS = \
+tasking_SRCS := \
+channel.c \
+deque_list_tl.c \
 PRM_task.c \
+runtime.c \
 tasking.c \
 tasking_internal.c \
-deque_list_tl.c \
 task_stack.c
 
-runtime_SRCS = \
-runtime.c
-
-SRCS = \
+SRCS := \
+barrier.c \
+bpc.c \
+brg_sha1.c \
+cilksort.c \
 fib.c \
 fibgen.c \
-spc.c \
-bpc.c \
 fib-like.c \
-qsort.c \
-barrier.c \
+getoptions.c \
+loopsched.c \
+lu.c \
 mm.c \
 mm_dac.c \
-lu.c \
 nbody3.c \
-uts.c uts_seq.c uts_shm.c \
-uts_dfs.c \
-brg_sha1.c \
-cilksort.c getoptions.c \
 nqueens.c \
-loopsched.c \
-futures_api.c \
+qsort.c \
+spc.c \
 task_example.c \
 test_async.c \
-$(channel_SRCS) \
+uts.c \
+uts_dfs.c \
+uts_seq.c \
+uts_shm.c \
 $(tasking_SRCS) \
-$(runtime_SRCS)
 
-libtasking_SRCS = $(runtime_SRCS) $(channel_SRCS) $(tasking_SRCS)
+#//// TEST & BENCHMARK PROGRAMS ////////////////////////////////////////////#
 
-#//// ALL PROGRAMS /////////////////////////////////////////////////////////#
+PROGS := barrier bpc cilksort fib fibgen fib-like loopsched lu mm mm_dac
+PROGS += nbody3 nqueens qsort spc task_example test_async uts-par uts-seq
 
-PROGS = fib fibgen spc bpc fib-like qsort barrier mm mm_dac lu nbody3
-PROGS += uts-seq uts-par cilksort nqueens loopsched futures_api task_example
-PROGS += test_async
+barrier_SRCS 	  := barrier.c $(tasking_SRCS)
+bpc_SRCS 		  := bpc.c $(tasking_SRCS)
+cilksort_SRCS     := cilksort.c getoptions.c $(tasking_SRCS)
+fib_SRCS 	      := fib.c $(tasking_SRCS)
+fibgen_SRCS 	  := fibgen.c $(tasking_SRCS)
+fib_like_SRCS 	  := fib-like.c $(tasking_SRCS)
+loopsched_SRCS    := loopsched.c $(tasking_SRCS)
+lu_SRCS 		  := lu.c $(tasking_SRCS)
+mm_SRCS 		  := mm.c $(tasking_SRCS)
+mm_dac_SRCS 	  := mm_dac.c $(tasking_SRCS)
+nbody3_SRCS 	  := nbody3.c $(tasking_SRCS)
+nqueens_SRCS      := nqueens.c $(tasking_SRCS)
+qsort_SRCS 		  := qsort.c $(tasking_SRCS)
+spc_SRCS 		  := spc.c $(tasking_SRCS)
+task_example_SRCS := task_example.c $(tasking_SRCS)
+test_async_SRCS   := test_async.c $(tasking_SRCS)
+uts_par_SRCS	  := uts_shm.c uts.c brg_sha1.c $(tasking_SRCS)
+uts_seq_SRCS	  := uts_seq.c uts.c brg_sha1.c
 
-#//// BENCHMARK PROGRAMS ///////////////////////////////////////////////////#
+nbody3_LIBS 	  := m
+uts_par_LIBS	  := m
+uts_seq_LIBS	  := m
 
-spc_SRCS 		= spc.c $(libtasking_SRCS)
-bpc_SRCS 		= bpc.c $(libtasking_SRCS)
-fib_like_SRCS 	= fib-like.c $(libtasking_SRCS)
-qsort_SRCS 		= qsort.c $(libtasking_SRCS)
-mm_SRCS 		= mm.c $(libtasking_SRCS)
-mm_dac_SRCS 	= mm_dac.c $(libtasking_SRCS)
-lu_SRCS 		= lu.c $(libtasking_SRCS)
-nbody3_SRCS 	= nbody3.c $(libtasking_SRCS)
-nbody3_LIBS 	= m
-uts_seq_SRCS	= uts_seq.c uts.c brg_sha1.c
-uts_seq_LIBS	= m
-uts_par_SRCS	= uts_shm.c uts.c brg_sha1.c $(libtasking_SRCS)
-uts_par_LIBS	= m
-cilksort_SRCS   = cilksort.c getoptions.c $(libtasking_SRCS)
-nqueens_SRCS    = nqueens.c $(libtasking_SRCS)
-loopsched_SRCS  = loopsched.c $(libtasking_SRCS)
-
-#//// TEST PROGRAMS ////////////////////////////////////////////////////////#
-
-fib_SRCS 	      = fib.c $(libtasking_SRCS)
-fibgen_SRCS 	  = fibgen.c $(libtasking_SRCS)
-barrier_SRCS 	  = barrier.c $(libtasking_SRCS)
-futures_api_SRCS  = futures_api.c $(libtasking_SRCS)
-task_example_SRCS = task_example.c $(libtasking_SRCS)
-test_async_SRCS   = test_async.c $(libtasking_SRCS)
+#///////////////////////////////////////////////////////////////////////////#
 
 VPATH += channel_shm test test/rng
 
@@ -111,9 +101,10 @@ test: $(PROGS)
 include ../rules.mk
 include ../deps.mk
 
-libtasking.a: $(libtasking_SRCS:.c=.o)
+libtasking: ../lib/libtasking.a
+
+../lib/libtasking.a: $(tasking_SRCS:.c=.o)
 	$(AR) rc $@ $^
-	cp $@ ../lib
 
 .PHONY: veryclean
 veryclean:
