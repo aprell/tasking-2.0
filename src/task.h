@@ -1,10 +1,9 @@
 #ifndef TASK_H
 #define TASK_H
 
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <stdbool.h>
-#include "list.h"
 
 #define TASK_SUCCESS 0
 #define TASK_ERROR_BASE 400
@@ -12,7 +11,6 @@
 #define TASK_SIZE sizeof(Task)
 
 typedef struct task Task;
-typedef struct PRM_task_queue PRM_task_queue;
 
 struct task {
 	// Required to pop child tasks:
@@ -80,53 +78,5 @@ static inline char *task_data(Task *task)
 {
 	return task->data;
 }
-
-/*****************************************************************************
- * Private memory (PRM) task queue
- * Circular doubly-linked list
- * (Linux kernel implementation, adapted for user-space)
- *****************************************************************************/
-
-typedef struct PRM_task_node PRM_task_node;
-
-struct PRM_task_node {
-	struct task task;
-	struct list_head list;
-};
-
-struct PRM_task_queue {
-	int type;
-	unsigned int ntasks;
-	struct list_head list;
-};
-
-enum {
-	task_LIFO,
-	task_FIFO
-};
-
-PRM_task_queue *PRM_task_queue_init(int type);
-void PRM_task_queue_destroy(PRM_task_queue *tq);
-void PRM_task_queue_add_task_node(PRM_task_queue *tq, PRM_task_node *task);
-PRM_task_node *PRM_task_queue_remove_task_node(PRM_task_queue *tq);
-PRM_task_node *PRM_task_queue_steal_task_node(PRM_task_queue *tq);
-bool PRM_task_queue_is_empty(PRM_task_queue *tq);
-unsigned int PRM_task_queue_num_tasks(PRM_task_queue *tq);
-
-Task *PRM_task_new(void (*fn)(void *), void *data);
-void PRM_task_delete(Task *task);
-Task *PRM_task_reuse(Task *task, void (*fn)(void *), void *data);
-Task *PRM_task_clear(Task *task);
-void PRM_task_join(PRM_task_queue *tq);
-void PRM_task_join_free_list(PRM_task_queue *tq, PRM_task_queue *fl);
-
-#define PRM_task_dispatch(task, tq) \
-	PRM_task_queue_add_task_node(tq, (PRM_task_node *)(task))
-
-#define PRM_task_remove(tq) \
-	(Task *)PRM_task_queue_remove_task_node(tq)
-
-#define PRM_task_steal(tq) \
-	(Task *)PRM_task_queue_steal_task_node(tq)
 
 #endif // TASK_H

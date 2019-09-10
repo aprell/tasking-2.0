@@ -33,7 +33,6 @@ endif
 tasking_SRCS := \
 channel.c \
 deque_list_tl.c \
-PRM_task.c \
 runtime.c \
 tasking.c \
 tasking_internal.c \
