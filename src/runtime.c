@@ -4,6 +4,7 @@
 #include <string.h>
 #include <assert.h>
 #include <pthread.h>
+#include <unistd.h>
 #include "bit.h"
 #include "runtime.h"
 #include "deque_list_tl.h"
@@ -17,6 +18,8 @@ UTEST_MAIN() {}
 #include "partition.h"
 #include "partition.c"
 
+#define UNREACHABLE() assert(false && "Unreachable")
+
 #define LOG(...) { printf(__VA_ARGS__); fflush(stdout); }
 #define UNUSED(x) x __attribute__((unused))
 
@@ -28,6 +31,17 @@ static Channel *chan_requests[MAXWORKERS];
 
 // Worker -> worker: tasks (SPSC)
 static Channel *chan_tasks[MAXWORKERS][MAXSTEAL];
+
+static PRIVATE useconds_t backoff_duration = 1;
+
+#define BACKOFF() \
+do { \
+	LOG("Worker %d backing off for %d us\n", ID, backoff_duration); \
+	/* "Spurious wakeups" are handled in schedule */ \
+	usleep(backoff_duration); \
+	/* Exponential backoff */ \
+	backoff_duration = min(backoff_duration * 2, (useconds_t)1000000); \
+} while (0)
 
 #define BOUNDED_STACK_ELEM_TYPE Channel *
 #include "bounded_stack.h"
@@ -469,15 +483,11 @@ static int next_victim(struct steal_request *req)
 
 #define POTENTIAL_VICTIM(n) ((req->victims) & BIT(n))
 
-	if (req->ID == ID) {
-		assert(req->try == 0);
-		// Initially: send message to random worker != ID
-		do { victim = rand_r(&seed) % my_partition->num_workers_rt; } while (victim == ID);
-	} else if (req->try == MAX_STEAL_ATTEMPTS) {
+	if (req->try == MAX_STEAL_ATTEMPTS) {
 		// Return steal request to thief
-		//print_victims(req->victims, req->ID);
 		victim = req->ID;
 	} else {
+		assert((req->try == 0 && req->ID == ID) || (req->try > 0 && req->ID != ID));
 		// Forward steal request to different worker != ID, if possible
 		if (tree.left_subtree_is_idle && tree.right_subtree_is_idle) {
 			mark_as_idle(&req->victims, ID);
@@ -496,6 +506,7 @@ static int next_victim(struct steal_request *req)
 		// Couldn't find victim; return steal request to thief
 		assert(req->victims == 0);
 		victim = req->ID;
+		assert(victim != ID || (victim == ID && ID == MASTER_ID));
 	}
 
 #if 0
@@ -505,7 +516,8 @@ static int next_victim(struct steal_request *req)
 	}
 #endif
 
-	assert(0 <= victim && victim < my_partition->num_workers_rt && victim != ID);
+
+	assert(0 <= victim && victim < my_partition->num_workers_rt);
 	assert(0 <= req->try && req->try <= MAX_STEAL_ATTEMPTS);
 
 	return victim;
@@ -551,6 +563,31 @@ do { \
 #define SEND_REQ_WORKER(ID, req)	SEND_REQ(chan_requests[ID], req)
 #define SEND_REQ_MANAGER(req)		SEND_REQ(chan_requests[my_partition->manager], req)
 
+#include "overload_RECV_REQ.h"
+
+static inline bool RECV_REQ(struct steal_request *req, int n)
+// requires -1 <= n < num_workers
+{
+	bool ret = false;
+
+	// Valid worker ID?
+	if (n == -1) return ret;
+
+	int maxID = my_partition->num_workers_rt-1;
+
+	if (n < num_workers) {
+		// Check for steal requests on behalf of worker n
+		PROFILE(SEND_RECV_REQ) {
+			//LOG("Worker %d checking for steal requests on behalf of worker %d\n", ID, n);
+			ret = channel_receive(chan_requests[n], req, sizeof(*req));
+		} // PROFILE
+		if (!ret) ret = RECV_REQ(req, left_child(n, maxID));
+		if (!ret) ret = RECV_REQ(req, right_child(n, maxID));
+	}
+
+	return ret;
+}
+
 static inline bool RECV_REQ(struct steal_request *req)
 {
 	bool ret;
@@ -576,6 +613,18 @@ static inline bool RECV_REQ(struct steal_request *req)
 		// No special treatment for other states
 		assert((ret && req->state != STATE_FAILED) || !ret);
 	} // PROFILE
+
+	// Check if we should handle steal requests on behalf of workers that have
+	// backed off. A worker backs off after sending a work-sharing request,
+	// which means it might stop responding to messages.
+
+	if (!ret && tree.left_subtree_is_idle) {
+		ret = RECV_REQ(req, left_child(ID, my_partition->num_workers_rt-1));
+	}
+
+	if (!ret && tree.right_subtree_is_idle) {
+		ret = RECV_REQ(req, right_child(ID, my_partition->num_workers_rt-1));
+	}
 
 	return ret;
 }
@@ -770,8 +819,9 @@ static void decline_steal_request(struct steal_request *req)
 	requests_declined++;
 
 	if (req->ID == ID) {
-		// Steal request was returned
-		assert(req->victims == 0);
+		// Steal request was either returned by another worker OR picked up by
+		// us. Thus, the following assertion no longer holds:
+		// assert(req->victims == 0);
 		if (req->state == STATE_IDLE && tree.left_subtree_is_idle && tree.right_subtree_is_idle) {
 #if MAXSTEAL > 1
 			// Is this the last of MAXSTEAL steal requests? If so, we can
@@ -827,11 +877,20 @@ static void decline_steal_request(struct steal_request *req)
 #endif // MAXSTEAL
 
 		} else {
-			// Continue circulating the steal request
-			//print_victims(req->victims, ID);
+			// Continue circulating the steal request if it makes sense
 			req->try = 0;
 			req->victims = INIT_VICTIMS;
-			SEND_REQ_WORKER(next_victim(req), req);
+			int victim = next_victim(req);
+			if (victim != ID) {
+				SEND_REQ_WORKER(victim, req);
+			} else {
+				assert(req->state == STATE_WORKING);
+				// TODO: Is it safe to change state and fast-track termination
+				// detection?
+				//req->state = STATE_IDLE;
+				//decline_steal_request(req);
+				FORGET_REQ(req);
+			}
 		}
 	} else {
 		SEND_REQ_WORKER(next_victim(req), req);
@@ -907,9 +966,7 @@ static void handle_steal_request(struct steal_request *req)
 			// give up for now
 			FORGET_REQ(req);
 #else
-			// TODO: Which is more reasonable: Continue circulating steal
-			// request or dropping it for now?
-			//FORGET_REQ(req);
+			// Defer the decision to decline_steal_request
 			decline_steal_request(req);
 #endif
 			return;
@@ -1068,8 +1125,14 @@ void *schedule(UNUSED(void *args))
 		while (!RECV_TASK(&task)) {
 			assert(deque_list_tl_empty(deque));
 			assert(requested);
-			decline_all_steal_requests();
+			if (tree.waiting_for_tasks) {
+				BACKOFF();
+			} else {
+				decline_all_steal_requests();
+			}
 		}
+
+		backoff_duration = 1;
 
 		} // PROFILE
 		loot = task->batch;
