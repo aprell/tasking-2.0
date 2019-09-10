@@ -7,7 +7,7 @@
 #include <unistd.h>
 #include "bit.h"
 #include "runtime.h"
-#include "deque_list_tl.h"
+#include "deque.h"
 // Disable unit tests
 #include "utest.h"
 UTEST_MAIN() {}
@@ -24,7 +24,7 @@ UTEST_MAIN() {}
 #define UNUSED(x) x __attribute__((unused))
 
 // Private task deque
-static PRIVATE DequeListTL *deque;
+static PRIVATE Deque *deque;
 
 // Worker -> worker: intra-partition steal requests (MPSC)
 static Channel *chan_requests[MAXWORKERS];
@@ -377,7 +377,7 @@ int RT_init(void)
 		assert(ID == MASTER_ID);
 	}
 
-	deque = deque_list_tl_new();
+	deque = deque_new();
 
 	MASTER {
 		// Unprocessed update message followed by new steal request
@@ -436,7 +436,7 @@ int RT_exit(void)
 {
 	int i;
 
-	deque_list_tl_delete(deque);
+	deque_delete(deque);
 
 	free(victims);
 
@@ -466,7 +466,7 @@ int RT_exit(void)
 
 Task *task_alloc(void)
 {
-	return deque_list_tl_task_new(deque);
+	return deque_task_new(deque);
 }
 
 // Number of steal attempts before a steal request is sent back to the thief
@@ -952,10 +952,10 @@ static void handle_steal_request(struct steal_request *req)
 		// Got own steal request
 		// Forget about it if we have more tasks than previously
 #ifdef STEAL_EARLY
-		if (deque_list_tl_num_tasks(deque) > STEAL_EARLY_THRESHOLD ||
+		if (deque_num_tasks(deque) > STEAL_EARLY_THRESHOLD ||
 			tasks_left > STEAL_EARLY_THRESHOLD) {
 #else
-		if (deque_list_tl_num_tasks(deque) > 0 || tasks_left > 0) {
+		if (deque_num_tasks(deque) > 0 || tasks_left > 0) {
 #endif
 			FORGET_REQ(req);
 			return;
@@ -978,14 +978,14 @@ static void handle_steal_request(struct steal_request *req)
 
 #if STEAL == adaptive
 	if (req->stealhalf) {
-		task = deque_list_tl_steal_half(deque, &loot);
+		task = deque_steal_half(deque, &loot);
 	} else {
-		task = deque_list_tl_steal(deque);
+		task = deque_steal(deque);
 	}
 #elif STEAL == half
-	task = deque_list_tl_steal_half(deque, &loot);
+	task = deque_steal_half(deque, &loot);
 #else // Default is steal-one
-	task = deque_list_tl_steal(deque);
+	task = deque_steal(deque);
 #endif
 
 	} // PROFILE
@@ -1016,7 +1016,7 @@ static void handle_steal_request(struct steal_request *req)
 	} else {
 		// There's nothing we can do with this steal request except pass it on
 		// to a different worker
-		assert(deque_list_tl_empty(deque));
+		assert(deque_empty(deque));
 		decline_steal_request(req);
 		HAVE_NO_TASKS();
 	}
@@ -1033,7 +1033,7 @@ static inline bool handle(struct steal_request *req)
 	Task *this = get_current_task();
 
 	// Send independent task(s) if possible
-	if (!deque_list_tl_empty(deque)) {
+	if (!deque_empty(deque)) {
 		handle_steal_request(req);
 		return true;
 	}
@@ -1113,7 +1113,7 @@ void *schedule(UNUSED(void *args))
 		// (1) Private task queue
 		while ((task = pop()) != NULL) {
 			PROFILE(RUN_TASK) run_task(task);
-			PROFILE(ENQ_DEQ_TASK) deque_list_tl_task_cache(deque, task);
+			PROFILE(ENQ_DEQ_TASK) deque_task_cache(deque, task);
 		}
 
 		// (2) Work-stealing request
@@ -1123,7 +1123,7 @@ void *schedule(UNUSED(void *args))
 		PROFILE(IDLE) {
 
 		while (!RECV_TASK(&task)) {
-			assert(deque_list_tl_empty(deque));
+			assert(deque_empty(deque));
 			assert(requested);
 			if (tree.waiting_for_tasks) {
 				BACKOFF();
@@ -1143,7 +1143,7 @@ void *schedule(UNUSED(void *args))
 		}
 #endif
 		if (loot > 1) {
-			PROFILE(ENQ_DEQ_TASK) task = deque_list_tl_pop(deque_list_tl_prepend(deque, task, loot));
+			PROFILE(ENQ_DEQ_TASK) task = deque_pop(deque_prepend(deque, task, loot));
 			HAVE_TASKS();
 		}
 #ifdef VICTIM_CHECK
@@ -1158,7 +1158,7 @@ void *schedule(UNUSED(void *args))
 		share_work();
 
 		PROFILE(RUN_TASK) run_task(task);
-		PROFILE(ENQ_DEQ_TASK) deque_list_tl_task_cache(deque, task);
+		PROFILE(ENQ_DEQ_TASK) deque_task_cache(deque, task);
 
 		if (tasking_done()) break;
 	}
@@ -1190,7 +1190,7 @@ int RT_barrier(void)
 empty_local_queue:
 	while ((task = pop()) != NULL) {
 		PROFILE(RUN_TASK) run_task(task);
-		PROFILE(ENQ_DEQ_TASK) deque_list_tl_task_cache(deque, task);
+		PROFILE(ENQ_DEQ_TASK) deque_task_cache(deque, task);
 	}
 
 	if (num_workers == 1) {
@@ -1208,7 +1208,7 @@ empty_local_queue:
 	PROFILE(IDLE) {
 
 	while (!RECV_TASK(&task)) {
-		assert(deque_list_tl_empty(deque));
+		assert(deque_empty(deque));
 		assert(requested);
 		decline_all_steal_requests();
 		if (quiescent) {
@@ -1225,7 +1225,7 @@ empty_local_queue:
 	}
 #endif
 	if (loot > 1) {
-		PROFILE(ENQ_DEQ_TASK) task = deque_list_tl_pop(deque_list_tl_prepend(deque, task, loot));
+		PROFILE(ENQ_DEQ_TASK) task = deque_pop(deque_prepend(deque, task, loot));
 		HAVE_TASKS();
 	}
 #ifdef VICTIM_CHECK
@@ -1240,7 +1240,7 @@ empty_local_queue:
 	share_work();
 
 	PROFILE(RUN_TASK) run_task(task);
-	PROFILE(ENQ_DEQ_TASK) deque_list_tl_task_cache(deque, task);
+	PROFILE(ENQ_DEQ_TASK) deque_task_cache(deque, task);
 	goto empty_local_queue;
 
 RT_barrier_exit:
@@ -1282,7 +1282,7 @@ void RT_force_future(Channel *chan, void *data, unsigned int size)
 
 	while ((task = pop_child()) != NULL) {
 		PROFILE(RUN_TASK) run_task(task);
-		PROFILE(ENQ_DEQ_TASK) deque_list_tl_task_cache(deque, task);
+		PROFILE(ENQ_DEQ_TASK) deque_task_cache(deque, task);
 		if (READY)
 			goto RT_force_future_return;
 	}
@@ -1317,7 +1317,7 @@ void RT_force_future(Channel *chan, void *data, unsigned int size)
 		}
 #endif
 		if (loot > 1) {
-			PROFILE(ENQ_DEQ_TASK) task = deque_list_tl_pop(deque_list_tl_prepend(deque, task, loot));
+			PROFILE(ENQ_DEQ_TASK) task = deque_pop(deque_prepend(deque, task, loot));
 			HAVE_TASKS();
 		}
 #ifdef VICTIM_CHECK
@@ -1332,7 +1332,7 @@ void RT_force_future(Channel *chan, void *data, unsigned int size)
 		share_work();
 
 		PROFILE(RUN_TASK) run_task(task);
-		PROFILE(ENQ_DEQ_TASK) deque_list_tl_task_cache(deque, task);
+		PROFILE(ENQ_DEQ_TASK) deque_task_cache(deque, task);
 	}
 
 #undef READY
@@ -1355,7 +1355,7 @@ void push(Task *task)
 {
 	struct steal_request req;
 
-	deque_list_tl_push(deque, task);
+	deque_push(deque, task);
 
 	HAVE_TASKS();
 
@@ -1388,7 +1388,7 @@ static inline void try_steal(void)
 	if (num_workers == 1)
 		return;
 
-	if (deque_list_tl_num_tasks(deque) <= STEAL_EARLY_THRESHOLD) {
+	if (deque_num_tasks(deque) <= STEAL_EARLY_THRESHOLD) {
 		// By definition not yet idle
 		try_send_steal_request(/* idle = */ false);
 	}
@@ -1402,7 +1402,7 @@ Task *pop(void)
 	Task *task;
 
 	PROFILE(ENQ_DEQ_TASK) {
-		task = deque_list_tl_pop(deque);
+		task = deque_pop(deque);
 	}
 
 #ifdef VICTIM_CHECK
@@ -1424,7 +1424,7 @@ Task *pop(void)
 	while (RECV_REQ(&req)) {
 		// If we just popped a loop task, we may split right here
 		// Makes handle_steal_request simpler
-		if (deque_list_tl_empty(deque) && SPLITTABLE(task)) {
+		if (deque_empty(deque) && SPLITTABLE(task)) {
 			if (req.ID != ID) {
 				split_loop(task, &req);
 			} else {
@@ -1444,7 +1444,7 @@ Task *pop_child(void)
 	Task *task;
 
 	PROFILE(ENQ_DEQ_TASK) {
-		task = deque_list_tl_pop_child(deque, get_current_task());
+		task = deque_pop_child(deque, get_current_task());
 	}
 
 #ifdef STEAL_EARLY
@@ -1459,7 +1459,7 @@ Task *pop_child(void)
 	while (RECV_REQ(&req)) {
 		// If we just popped a loop task, we may split right here
 		// Makes handle_steal_request simpler
-		if (deque_list_tl_empty(deque) && SPLITTABLE(task)) {
+		if (deque_empty(deque) && SPLITTABLE(task)) {
 			if (req.ID != ID) {
 				split_loop(task, &req);
 			} else {
