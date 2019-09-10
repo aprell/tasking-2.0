@@ -6,7 +6,6 @@
 #include <unistd.h>
 #include "tasking.h"
 #include "async.h"
-#include "chanref.h"
 #include "wtime.h"
 
 typedef long ELM;

@@ -6,7 +6,6 @@
 #include <unistd.h>
 #include "tasking.h"
 #include "async.h"
-#include "chanref.h"
 #include "wtime.h"
 
 static int FIB_LIKE_N; // For example, 25
