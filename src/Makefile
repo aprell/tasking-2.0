@@ -44,6 +44,7 @@ runtime_SRCS = \
 runtime.c
 
 SRCS = \
+fib.c \
 fibgen.c \
 spc.c \
 bpc.c \
@@ -71,7 +72,7 @@ libtasking_SRCS = $(runtime_SRCS) $(channel_SRCS) $(tasking_SRCS)
 
 #//// ALL PROGRAMS /////////////////////////////////////////////////////////#
 
-PROGS = fibgen spc bpc fib-like qsort barrier mm mm_dac lu nbody3
+PROGS = fib fibgen spc bpc fib-like qsort barrier mm mm_dac lu nbody3
 PROGS += uts-seq uts-par cilksort nqueens loopsched futures_api task_example
 PROGS += test_async
 
@@ -96,6 +97,7 @@ loopsched_SRCS  = loopsched.c $(libtasking_SRCS)
 
 #//// TEST PROGRAMS ////////////////////////////////////////////////////////#
 
+fib_SRCS 	      = fib.c $(libtasking_SRCS)
 fibgen_SRCS 	  = fibgen.c $(libtasking_SRCS)
 barrier_SRCS 	  = barrier.c $(libtasking_SRCS)
 futures_api_SRCS  = futures_api.c $(libtasking_SRCS)
