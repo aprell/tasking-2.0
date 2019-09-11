@@ -11,8 +11,6 @@
 #include "profile.h"
 #include "worker_tree.h"
 
-#define LOG(...) { printf(__VA_ARGS__); fflush(stdout); }
-
 // Private task deque
 static PRIVATE Deque *deque;
 
@@ -24,9 +22,19 @@ static Channel *chan_tasks[MAXWORKERS][MAXSTEAL];
 
 static PRIVATE useconds_t backoff_duration = 1;
 
+static pthread_mutex_t print_lock = PTHREAD_MUTEX_INITIALIZER;
+
+#define PRINTF(...) \
+do { \
+	pthread_mutex_lock(&print_lock); \
+	printf(__VA_ARGS__); \
+	fflush(stdout); \
+	pthread_mutex_unlock(&print_lock); \
+} while (0)
+
 #define BACKOFF() \
 do { \
-	LOG("Worker %d backing off for %d us\n", ID, backoff_duration); \
+	PRINTF("Worker %d backing off for %d us\n", ID, backoff_duration); \
 	/* "Spurious wakeups" are handled in schedule */ \
 	usleep(backoff_duration); \
 	/* Exponential backoff */ \
@@ -134,11 +142,11 @@ struct steal_request {
 static inline void print_steal_req(struct steal_request *req)
 {
 #if STEAL == adaptive
-	LOG("{ .ID = %d, .try = %d, .state = %d, .stealhalf = %s }\n",
-		req->ID, req->try, req->state, req->stealhalf ? "true" : "false");
+	PRINTF("{ .ID = %d, .try = %d, .state = %d, .stealhalf = %s }\n",
+		   req->ID, req->try, req->state, req->stealhalf ? "true" : "false");
 #else
-	LOG("{ .ID = %d, .try = %d, .state = %d }\n",
-		req->ID, req->try, req->state);
+	PRINTF("{ .ID = %d, .try = %d, .state = %d }\n",
+		   req->ID, req->try, req->state);
 #endif
 }
 
@@ -174,16 +182,6 @@ static PRIVATE int last_victim = -1;
 static PRIVATE int last_thief = -1;
 #endif
 
-static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
-
-#define PRINTF(...) \
-do { \
-	pthread_mutex_lock(&lock); \
-	printf(__VA_ARGS__); \
-	fflush(stdout); \
-	pthread_mutex_unlock(&lock); \
-} while (0)
-
 static inline void print_victims(unsigned int victims, int ID)
 {
 #define VICTIM(victims, n) (((victims) & BIT(n)) != 0 ? '1' : '0')
@@ -191,7 +189,7 @@ static inline void print_victims(unsigned int victims, int ID)
 
 	int i;
 
-	pthread_mutex_lock(&lock);
+	pthread_mutex_lock(&print_lock);
 
 	printf("victims[%2d] = ", ID);
 
@@ -205,7 +203,7 @@ static inline void print_victims(unsigned int victims, int ID)
 
 	printf("%c\n", VICTIM(victims, 0));
 
-	pthread_mutex_unlock(&lock);
+	pthread_mutex_unlock(&print_lock);
 #undef VICTIM
 }
 
@@ -357,7 +355,7 @@ int RT_init(void)
 	// The worker tree is a complete binary tree with worker 0 at the root
 	worker_tree_init(&tree, ID, num_workers-1);
 
-	MASTER LOG("Number of workers: %d\n", num_workers);
+	MASTER PRINTF("Number of workers: %d\n", num_workers);
 
 	PROFILE_INIT(RUN_TASK);
 	PROFILE_INIT(ENQ_DEQ_TASK);
@@ -389,9 +387,9 @@ int RT_exit(void)
 
 	bounded_queue_free(work_sharing_requests);
 
-	LOG("Worker %d: random_receiver fast path (slow path): %3.0f %% (%3.0f %%)\n",
-		ID, (double)random_receiver_early_exits * 100 / random_receiver_calls,
-		(100 - ((double)random_receiver_early_exits * 100 / random_receiver_calls)));
+	PRINTF("Worker %d: random_receiver fast path (slow path): %3.0f %% (%3.0f %%)\n",
+		   ID, (double)random_receiver_early_exits * 100 / random_receiver_calls,
+		   (100 - ((double)random_receiver_early_exits * 100 / random_receiver_calls)));
 
 	return 0;
 }
@@ -443,8 +441,8 @@ static int next_victim(struct steal_request *req)
 
 #if 0
 	if (victim == req->ID) {
-		LOG("%d -{%d}-> %d after %d tries (%u ones)\n",
-			ID, req->ID, victim, req->try, count_one_bits(req->victims));
+		PRINTF("%d -{%d}-> %d after %d tries (%u ones)\n",
+			   ID, req->ID, victim, req->try, count_one_bits(req->victims));
 	}
 #endif
 
@@ -485,7 +483,7 @@ do { \
 	/* ==> send to full channel will block the sender */ \
 	while (!channel_send(chan, req, sizeof(*(req)))) { \
 		if (++__nfail % 3 == 0) { \
-			LOG("*** Worker %d: blocked on channel send\n", ID); \
+			PRINTF("*** Worker %d: blocked on channel send\n", ID); \
 			assert(false && "Check channel capacities!"); \
 		} \
 		if (tasking_done()) break; \
@@ -509,7 +507,7 @@ static inline bool RECV_REQ(struct steal_request *req, int n)
 	if (n < num_workers) {
 		// Check for steal requests on behalf of worker n
 		PROFILE(SEND_RECV_REQ) {
-			//LOG("Worker %d checking for steal requests on behalf of worker %d\n", ID, n);
+			//PRINTF("Worker %d checking for steal requests on behalf of worker %d\n", ID, n);
 			ret = channel_receive(chan_requests[n], req, sizeof(*req));
 		} // PROFILE
 		if (!ret) ret = RECV_REQ(req, left_child(n, maxID));
@@ -527,7 +525,7 @@ static inline bool RECV_REQ(struct steal_request *req)
 		ret = channel_receive(chan_requests[ID], req, sizeof(*req));
 		while (ret && req->state == STATE_FAILED) {
 #ifdef DEBUG_TD
-			LOG("Worker %d receives STATE_FAILED from worker %d\n", ID, req->ID);
+			PRINTF("Worker %d receives STATE_FAILED from worker %d\n", ID, req->ID);
 #endif
 			assert(req->ID == tree.left_child || req->ID == tree.right_child);
 			if (req->ID == tree.left_child) {
@@ -634,7 +632,7 @@ static inline void detect_termination(void)
 	assert(!quiescent);
 
 #ifdef DEBUG_TD
-	LOG(">>> Worker %d detects termination <<<\n", ID);
+	PRINTF(">>> Worker %d detects termination <<<\n", ID);
 #endif
 	quiescent = true;
 }
@@ -771,7 +769,7 @@ static void decline_steal_request(struct steal_request *req)
 				} else {
 					req->state = STATE_FAILED;
 #ifdef DEBUG_TD
-					LOG("Worker %d sends STATE_FAILED to worker %d\n", ID, tree.parent);
+					PRINTF("Worker %d sends STATE_FAILED to worker %d\n", ID, tree.parent);
 #endif
 					SEND_REQ_WORKER(tree.parent, req);
 					assert(!tree.waiting_for_tasks);
@@ -779,7 +777,7 @@ static void decline_steal_request(struct steal_request *req)
 				}
 			} else {
 #ifdef DEBUG_TD
-				LOG("Worker %d drops steal request\n", ID);
+				PRINTF("Worker %d drops steal request\n", ID);
 #endif
 				// The master can safely run this assertion as it is never
 				// waiting for tasks from its parent (it has none).
@@ -798,7 +796,7 @@ static void decline_steal_request(struct steal_request *req)
 			} else {
 				req->state = STATE_FAILED;
 #ifdef DEBUG_TD
-				LOG("Worker %d sends STATE_FAILED to worker %d\n", ID, tree.parent);
+				PRINTF("Worker %d sends STATE_FAILED to worker %d\n", ID, tree.parent);
 #endif
 				SEND_REQ_WORKER(tree.parent, req);
 				assert(!tree.waiting_for_tasks);
@@ -935,7 +933,7 @@ static void handle_steal_request(struct steal_request *req)
 		}
 #endif
 		channel_send(req->chan, (void *)&task, sizeof(Task *));
-		//LOG("Worker %2d: sending %d task%s to worker %d\n",
+		//PRINTF("Worker %2d: sending %d task%s to worker %d\n",
 		//	ID, loot, loot > 1 ? "s" : "", req->ID);
 		requests_handled++;
 		tasks_sent += loot;
@@ -1110,7 +1108,7 @@ int RT_barrier(void)
 	WORKER return 0;
 
 #ifdef DEBUG_TD
-	LOG(">>> Worker %d enters barrier <<<\n", ID);
+	PRINTF(">>> Worker %d enters barrier <<<\n", ID);
 #endif
 
 	assert(is_root_task(get_current_task()));
@@ -1179,7 +1177,7 @@ RT_barrier_exit:
 	assert(quiescent);
 
 #ifdef DEBUG_TD
-	LOG(">>> Worker %d leaves barrier <<<\n", ID);
+	PRINTF(">>> Worker %d leaves barrier <<<\n", ID);
 #endif
 
 	return 0;
@@ -1296,7 +1294,7 @@ void push(Task *task)
 	if (quiescent) {
 		assert(ID == MASTER_ID);
 #ifdef DEBUG_TD
-		LOG(">>> Worker %d resumes execution after barrier <<<\n", ID);
+		PRINTF(">>> Worker %d resumes execution after barrier <<<\n", ID);
 #endif
 		quiescent = false;
 	}
@@ -1433,7 +1431,7 @@ static inline long split_guided(Task *task)
 		return split_half(task);
 	}
 
-	//LOG("Worker %2d: sending %ld iterations\n", ID, task->chunks);
+	//PRINTF("Worker %2d: sending %ld iterations\n", ID, task->chunks);
 
 	return task->end - task->chunks;
 }
@@ -1448,19 +1446,19 @@ static inline long split_adaptive(Task *task)
 
 	assert(iters_left > task->sst);
 
-	//LOG("Worker %2d: %ld of %ld iterations left\n", ID, iters_left, iters_total);
+	//PRINTF("Worker %2d: %ld of %ld iterations left\n", ID, iters_left, iters_total);
 
 	// We have already received one steal request
 	num_idle = IDLE_WORKERS + 1;
 
-	//LOG("Worker %2d: have %ld steal requests\n", ID, num_idle);
+	//PRINTF("Worker %2d: have %ld steal requests\n", ID, num_idle);
 
 	// Every thief receives a chunk
 	chunk = max(iters_left / (num_idle + 1), 1);
 
 	assert(iters_left > chunk);
 
-	//LOG("Worker %2d: sending %ld iterations\n", ID, chunk);
+	//PRINTF("Worker %2d: sending %ld iterations\n", ID, chunk);
 
 	return task->end - chunk;
 }
@@ -1490,7 +1488,7 @@ static void split_loop(Task *task, struct steal_request *req)
 
 	} // PROFILE
 
-	//LOG("Worker %2d: Sending [%ld, %ld) to worker %d\n", ID, dup->start, dup->end, req->ID);
+	//PRINTF("Worker %2d: Sending [%ld, %ld) to worker %d\n", ID, dup->start, dup->end, req->ID);
 
 	PROFILE(SEND_RECV_TASK) {
 
@@ -1535,5 +1533,5 @@ static void split_loop(Task *task, struct steal_request *req)
 
 	} // PROFILE
 
-	//LOG("Worker %2d: Continuing with [%ld, %ld)\n", ID, task->cur, task->end);
+	//PRINTF("Worker %2d: Continuing with [%ld, %ld)\n", ID, task->cur, task->end);
 }
