@@ -35,8 +35,7 @@ channel.c \
 deque.c \
 runtime.c \
 tasking.c \
-tasking_internal.c \
-task_stack.c
+tasking_internal.c
 
 SRCS := \
 barrier.c \
@@ -61,7 +60,7 @@ uts.c \
 uts_dfs.c \
 uts_seq.c \
 uts_shm.c \
-$(tasking_SRCS) \
+$(tasking_SRCS)
 
 #//// TEST & BENCHMARK PROGRAMS ////////////////////////////////////////////#
 

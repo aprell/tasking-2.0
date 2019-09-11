@@ -5,7 +5,6 @@
 #include <assert.h>
 #include <unistd.h>
 #include "deque.h"
-#include "task_stack.h"
 
 struct deque {
 	// List must be accessible from either end
@@ -14,9 +13,27 @@ struct deque {
 	unsigned int num_tasks;
 	// Record number of (successful) steals
 	unsigned int num_steals;
-	// Pool of free task objects
-	TaskStack *freelist;
+	// Pool (stack) of free task objects
+	Task *freelist;
 };
+
+static inline void freelist_push(Deque *dq, Task *task)
+{
+	task->next = dq->freelist;
+	dq->freelist = task;
+}
+
+static inline Task *freelist_pop(Deque *dq)
+{
+	if (!dq->freelist)
+		return NULL;
+
+	Task *task = dq->freelist;
+	dq->freelist = dq->freelist->next;
+	task->next = NULL;
+
+	return task;
+}
 
 Deque *deque_new(void)
 {
@@ -34,7 +51,7 @@ Deque *deque_new(void)
 	dq->tail = dummy;
 	dq->num_tasks = 0;
 	dq->num_steals = 0;
-	dq->freelist = task_stack_new();
+	dq->freelist = NULL;
 
 	return dq;
 }
@@ -52,7 +69,9 @@ void deque_delete(Deque *dq)
 		// Free dummy node
 		task_delete(dq->head);
 		// Free allocations that are still cached
-		task_stack_delete(dq->freelist);
+		while ((task = freelist_pop(dq)) != NULL) {
+			free(task);
+		}
 		free(dq);
 	}
 }
@@ -61,10 +80,10 @@ Task *deque_task_new(Deque *dq)
 {
 	assert(dq != NULL);
 
-	if (task_stack_empty(dq->freelist))
+	if (!dq->freelist)
 		return task_new();
 
-	return task_stack_pop(dq->freelist);
+	return freelist_pop(dq);
 }
 
 void deque_task_cache(Deque *dq, Task *task)
@@ -72,12 +91,11 @@ void deque_task_cache(Deque *dq, Task *task)
 	assert(dq != NULL);
 	assert(task != NULL);
 
-	task_stack_push(dq->freelist, task_zero(task));
+	freelist_push(dq, task_zero(task));
 }
 
 // Add list of tasks [head, tail] of length len to the front of dq
-Deque *deque_prepend(Deque *dq, Task *head, Task *tail,
-		                          unsigned int len)
+Deque *deque_prepend(Deque *dq, Task *head, Task *tail, unsigned int len)
 {
 	assert(dq != NULL);
 	assert(head != NULL && tail != NULL);
@@ -454,7 +472,7 @@ UTEST()
 		deque_push(deq, t);
 	}
 
-	check_equal(task_stack_empty(deq->freelist), true);
+	check_equal(deq->freelist, NULL);
 	check_equal(deque_empty(deq), false);
 	check_equal(deque_num_tasks(deq), N);
 
