@@ -23,4 +23,8 @@
 #define SPLIT half
 #endif
 
+#define UNUSED(x) x __attribute__((unused))
+
+#define UNREACHABLE() assert(false && "Unreachable")
+
 #endif // PLATFORM_H

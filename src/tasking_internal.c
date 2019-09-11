@@ -8,8 +8,6 @@
 #include "profile.h"
 #include "affinity.h"
 
-#define UNUSED __attribute__((unused))
-
 // Shared state
 #ifdef DISABLE_MANAGER
 atomic_t *td_count;
@@ -51,7 +49,7 @@ static void *worker_entry_fn(void *args)
 	return NULL;
 }
 
-int tasking_internal_init(int *argc UNUSED, char ***argv UNUSED)
+int tasking_internal_init(UNUSED(int *argc), UNUSED(char ***argv))
 {
 	static int num_cpus;
 

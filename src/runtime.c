@@ -11,10 +11,7 @@
 #include "profile.h"
 #include "worker_tree.h"
 
-#define UNREACHABLE() assert(false && "Unreachable")
-
 #define LOG(...) { printf(__VA_ARGS__); fflush(stdout); }
-#define UNUSED(x) x __attribute__((unused))
 
 // Private task deque
 static PRIVATE Deque *deque;
