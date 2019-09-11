@@ -150,9 +150,6 @@ PROFILE_EXTERN_DECL(IDLE);
 extern PRIVATE unsigned int requests_sent, requests_handled;
 extern PRIVATE unsigned int requests_declined, tasks_sent;
 extern PRIVATE unsigned int tasks_split;
-#ifdef STEAL_BACKOFF
-extern PRIVATE unsigned int requests_resent;
-#endif
 #if STEAL == adaptive
 extern PRIVATE unsigned int requests_steal_one, requests_steal_half;
 #endif
@@ -177,9 +174,6 @@ int tasking_internal_statistics(void)
 	printf("Worker %d: %u tasks executed\n", ID, num_tasks_exec);
 	printf("Worker %d: %u tasks sent\n", ID, tasks_sent);
 	printf("Worker %d: %u tasks split\n", ID, tasks_split);
-#ifdef STEAL_BACKOFF
-	printf("Worker %d: %u steal requests resent\n", ID, requests_resent);
-#endif
 #if STEAL == adaptive
 	assert(requests_steal_one + requests_steal_half == requests_sent);
 	printf("Worker %d: %.2f %% steal-one\n", ID, requests_sent > 0
