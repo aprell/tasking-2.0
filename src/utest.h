@@ -5,43 +5,41 @@
 #include <stdlib.h>
 
 #define check_equal(a, b) \
-{ \
+do { \
 	utest_count++; \
 	if ((a) != (b)) { \
-		fprintf(stderr, "Test %3u failed: %s != %s\n", utest_count, #a, #b); \
-		utest_count_failed++; \
+		fprintf(stderr, "%s:%u: check failed: %s != %s\n", \
+				__FILE__, __LINE__, #a, #b); \
+		utest_count_fail++; \
 	} \
-}
+} while (0)
 
-#define UTEST(name) \
-void utest_##name(void)
+#define check_not_equal(a, b) \
+do { \
+	utest_count++; \
+	if ((a) == (b)) { \
+		fprintf(stderr, "%s:%u: check failed: %s == %s\n", \
+				__FILE__, __LINE__, #a, #b); \
+		utest_count_fail++; \
+	} \
+} while (0)
 
-#define UTEST_MAIN() \
-unsigned int utest_count; \
-unsigned int utest_count_failed; \
-UTEST(main)
+#define UTEST_INIT \
+unsigned int utest_count = 0; \
+unsigned int utest_count_fail = 0;
 
-#define utest_init() \
-{ \
-	utest_count = utest_count_failed = 0; \
-}
-
-#define utest_exit() \
-{ \
-	fprintf(stderr, "%u of %u tests completed successfully\n",\
-			utest_count - utest_count_failed, utest_count); \
-	if (utest_count_failed) \
-		abort(); \
-}
-
-#define utest() \
-{ \
-	utest_init(); \
-	utest_main(); \
-	utest_exit(); \
-}
-
-extern unsigned int utest_count;
-extern unsigned int utest_count_failed;
+#define UTEST_DONE \
+do { \
+	unsigned int utest_count_ok = utest_count - utest_count_fail; \
+	fprintf(stderr, "%u check%s were successful, %u check%s failed\n", \
+			utest_count_ok, utest_count_ok == 1 ? "" : "s", \
+			utest_count_fail, utest_count_fail == 1 ? "" : "s"); \
+	if (utest_count_fail > 0) { \
+		fprintf(stderr, "FAILURE\n"); \
+		exit(EXIT_FAILURE); \
+	} else { \
+		fprintf(stderr, "SUCCESS\n"); \
+	} \
+} while (0)
 
 #endif // UTEST_H

@@ -4,8 +4,6 @@
 #include <assert.h>
 #include <pthread.h>
 #include "channel.h"
-#include "utest.h"
-UTEST_MAIN() {}
 
 #define WORKER(id) if (ID == (id))
 #define MASTER WORKER(0)

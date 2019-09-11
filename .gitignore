@@ -11,10 +11,10 @@
 tags
 stuff
 
+src/channel_shm/channel
 src/channel_shm/fib
 src/channel_shm/shift
 src/channel_shm/throughput
-src/channel_shm/utest
 src/channel_mpi
 
 src/test/*.tmp
@@ -24,22 +24,23 @@ src/*.log
 src/*.csv
 src/barrier
 src/bpc*
+src/cilksort*
+src/deque
 src/fib
 src/fibgen
 src/fib-like*
-src/qsort*
-src/cilksort*
-src/nqueens*
-src/spc*
+src/loopsched
+src/lu*
 src/mm*
 src/nbody3*
-src/uts
-src/uts-seq*
-src/uts-par*
-src/lu*
-src/loopsched
+src/nqueens*
+src/qsort*
+src/spc*
 src/task_example
 src/test_async
+src/uts
+src/uts-par*
+src/uts-seq*
 
 include/terra_async.h
 include/terra_tasking_mod

@@ -8,9 +8,6 @@
 #include "bit.h"
 #include "runtime.h"
 #include "deque.h"
-// Disable unit tests
-#include "utest.h"
-UTEST_MAIN() {}
 #include "profile.h"
 #include "worker_tree.h"
 

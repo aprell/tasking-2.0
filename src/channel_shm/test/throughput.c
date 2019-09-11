@@ -4,8 +4,6 @@
 #include <assert.h>
 #include "wtime.h"
 #include "channel.h"
-#include "utest.h"
-UTEST_MAIN() {}
 
 #define NUM_WORKERS 2
 #define N 1000000

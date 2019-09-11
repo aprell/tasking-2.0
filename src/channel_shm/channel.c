@@ -1,3 +1,4 @@
+// gcc -Wall -Wextra -Wno-unused-function -fsanitize=address,undefined -DTEST -I.. channel.c -o channel && ./channel
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -6,7 +7,6 @@
 #include <pthread.h>
 #include "channel.h"
 #include "atomic.h"
-#include "utest.h"
 
 #if 0
 #include <ck_spinlock.h>
@@ -670,6 +670,14 @@ bool channel_closed(Channel *chan)
 	return (bool)(atomic_read(&chan->closed) == 1);
 }
 
+//==========================================================================//
+
+#ifdef TEST
+
+//==========================================================================//
+
+#include "utest.h"
+
 #define MASTER 		WORKER(0)
 #define WORKER(id) 	if (A->ID == (id))
 #define PRINT(...)  { printf(__VA_ARGS__); fflush(stdout); }
@@ -687,6 +695,8 @@ bool channel_closed(Channel *chan)
 { \
 	while (!channel_receive(c, d, s)) ; \
 }
+
+UTEST_INIT;
 
 struct thread_args { int ID; Channel *chan; };
 
@@ -730,7 +740,7 @@ static void *thread_func(void *args)
 	return NULL;
 }
 
-UTEST(Channel)
+static void test_Channel(void)
 {
 	int I, i;
 
@@ -816,7 +826,7 @@ static void *thread_func_2(void *args)
 	return NULL;
 }
 
-UTEST(Channel_close)
+static void test_Channel_close(void)
 {
 	int I, i;
 
@@ -888,7 +898,7 @@ static bool check_if_cached(Channel *chan)
 
 // Must be run in isolation
 // CHANNEL_CACHE_CAPACITY should be greater than two to keep Asan happy
-UTEST(Channel_cache)
+static void test_Channel_cache(void)
 {
 	Channel *chan[10], *stash[10];
 	struct channel_cache *p;
@@ -989,3 +999,23 @@ UTEST(Channel_cache)
 	channel_free(chan[2]);
 }
 #endif // CHANNEL_CACHE
+
+int main(void)
+{
+#ifndef CHANNEL_CACHE
+	test_Channel();
+	test_Channel_close();
+#else
+	test_Channel_cache();
+#endif
+
+	UTEST_DONE;
+
+	return 0;
+}
+
+//==========================================================================//
+
+#endif // TEST
+
+//==========================================================================//

@@ -1,3 +1,4 @@
+// gcc -Wall -Wextra -Wno-sign-compare -fsanitize=address,undefined -DTEST deque.c -o deque && ./deque
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -416,7 +417,7 @@ unsigned int deque_num_tasks(Deque *dq)
 
 //==========================================================================//
 
-#ifdef TEST_DEQUE
+#ifdef TEST
 
 //==========================================================================//
 
@@ -429,9 +430,9 @@ typedef struct {
 	int a, b;
 } Data;
 
-UTEST()
+int main(void)
 {
-	puts("Testing Deque");
+	UTEST_INIT;
 
 	Deque *deq;
 	int i, m;
@@ -517,11 +518,13 @@ UTEST()
 
 	deque_delete(deq);
 
-	puts("Done");
+	UTEST_DONE;
+
+	return 0;
 }
 
 //==========================================================================//
 
-#endif // TEST_DEQUE
+#endif // TEST
 
 //==========================================================================//
