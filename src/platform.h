@@ -1,6 +1,8 @@
 #ifndef PLATFORM_H
 #define PLATFORM_H
 
+#define MAXWORKERS 256
+
 #define PRIVATE __thread
 
 // Supported work-stealing strategies (-DSTEAL=[one|half|adaptive])
