@@ -30,7 +30,7 @@ ifeq ($(USE_COZ),1)
   CPPFLAGS += -DUSE_COZ
   CFLAGS += -g
   INCLUDE += -I$(COZ_ROOT)/include
-  IMPORTS += -ldl
+  LDLIBS += -ldl
 endif
 
 tasking_SRCS := \

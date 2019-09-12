@@ -9,7 +9,7 @@ $(1): $(BUILDDIR)/$(1)
 	@ln -sf $$^ $$@
 
 $(BUILDDIR)/$(1): $$(addprefix $(BUILDDIR)/,$$($(subst -,_,$(1))_SRCS:.c=.o)) $$($(subst -,_,$(1))_PREREQS)
-	$$(CC) -o $$@ $$(filter %.o,$$^) $$(LDFLAGS) $$(IMPORTS) $$($(subst -,_,$(1))_LIBS:%=-l%)
+	$$(CC) -o $$@ $$(filter %.o,$$^) $$(LDFLAGS) $$(LDLIBS) $$($(subst -,_,$(1))_LIBS:%=-l%)
 endef
 
 # Default clean target
