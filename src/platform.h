@@ -1,7 +1,7 @@
 #ifndef PLATFORM_H
 #define PLATFORM_H
 
-#define MAXWORKERS 256
+#define MAXWORKERS 32
 
 #define PRIVATE __thread
 
