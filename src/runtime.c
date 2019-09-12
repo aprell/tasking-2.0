@@ -20,8 +20,6 @@ static Channel *chan_requests[MAXWORKERS];
 // Worker -> worker: tasks (SPSC)
 static Channel *chan_tasks[MAXWORKERS][MAXSTEAL];
 
-static PRIVATE useconds_t backoff_duration = 1;
-
 static pthread_mutex_t print_lock = PTHREAD_MUTEX_INITIALIZER;
 
 #define PRINTF(...) \
@@ -32,7 +30,11 @@ do { \
 	pthread_mutex_unlock(&print_lock); \
 } while (0)
 
-#define BACKOFF() \
+#if BACKOFF == sleep_exp
+
+static PRIVATE useconds_t backoff_duration = 1;
+
+#define SLEEP() \
 do { \
 	PRINTF("Worker %d backing off for %d us\n", ID, backoff_duration); \
 	/* "Spurious wakeups" are handled in schedule */ \
@@ -40,6 +42,38 @@ do { \
 	/* Exponential backoff */ \
 	backoff_duration = min(backoff_duration * 2, (useconds_t)1000000); \
 } while (0)
+
+#endif // BACKOFF == sleep_exp
+
+#if BACKOFF == wait_cond
+
+struct backoff_t {
+	pthread_mutex_t lock;
+	pthread_cond_t signal;
+	char __[128 - sizeof(pthread_mutex_t) - sizeof(pthread_cond_t)];
+};
+
+static struct backoff_t backoff[MAXWORKERS];
+
+#define WAIT() \
+do { \
+	/* Locking happens in decline_steal_request */ \
+	PRINTF("Worker %d backing off\n", ID); \
+	while (!channel_peek(chan_tasks[ID][0])) { \
+		pthread_cond_wait(&backoff[ID].signal, &backoff[ID].lock); \
+	} \
+	/* Unlocking happens in decline_steal_request */ \
+} while (0)
+
+#define SIGNAL(id) \
+do { \
+	PRINTF("Worker %d signaling worker %d\n", ID, id); \
+	pthread_mutex_lock(&backoff[id].lock); \
+	pthread_cond_signal(&backoff[id].signal); \
+	pthread_mutex_unlock(&backoff[id].lock); \
+} while (0)
+
+#endif // BACKOFF == wait_cond
 
 #define BOUNDED_STACK_ELEM_TYPE Channel *
 #include "bounded_stack.h"
@@ -355,6 +389,11 @@ int RT_init(void)
 	// The worker tree is a complete binary tree with worker 0 at the root
 	worker_tree_init(&tree, ID, num_workers-1);
 
+#if BACKOFF == wait_cond
+	pthread_mutex_init(&backoff[ID].lock, NULL);
+	pthread_cond_init(&backoff[ID].signal, NULL);
+#endif
+
 	MASTER PRINTF("Number of workers: %d\n", num_workers);
 
 	PROFILE_INIT(RUN_TASK);
@@ -386,6 +425,11 @@ int RT_exit(void)
 	bounded_stack_free(channel_stack);
 
 	bounded_queue_free(work_sharing_requests);
+
+#if BACKOFF == wait_cond
+	pthread_mutex_destroy(&backoff[ID].lock);
+	pthread_cond_destroy(&backoff[ID].signal);
+#endif
 
 	PRINTF("Worker %d: random_receiver fast path (slow path): %3.0f %% (%3.0f %%)\n",
 		   ID, (double)random_receiver_early_exits * 100 / random_receiver_calls,
@@ -492,6 +536,7 @@ do { \
 
 #define SEND_REQ_WORKER(ID, req)	SEND_REQ(chan_requests[ID], req)
 
+#if BACKOFF == sleep_exp || BACKOFF == wait_cond
 #include "overload_RECV_REQ.h"
 
 static inline bool RECV_REQ(struct steal_request *req, int n)
@@ -516,6 +561,7 @@ static inline bool RECV_REQ(struct steal_request *req, int n)
 
 	return ret;
 }
+#endif // BACKOFF
 
 static inline bool RECV_REQ(struct steal_request *req)
 {
@@ -543,6 +589,7 @@ static inline bool RECV_REQ(struct steal_request *req)
 		assert((ret && req->state != STATE_FAILED) || !ret);
 	} // PROFILE
 
+#if BACKOFF == sleep_exp || BACKOFF == wait_cond
 	// Check if we should handle steal requests on behalf of workers that have
 	// backed off. A worker backs off after sending a work-sharing request,
 	// which means it might stop responding to messages.
@@ -554,6 +601,7 @@ static inline bool RECV_REQ(struct steal_request *req)
 	if (!ret && tree.right_subtree_is_idle) {
 		ret = RECV_REQ(req, right_child(ID, num_workers-1));
 	}
+#endif
 
 	return ret;
 }
@@ -666,13 +714,23 @@ static void async_action(void (*fn)(void), Channel *chan)
 ASYNC_ACTION(notify_workers)
 {
 	assert(!tasking_finished);
+	// The following assertions require that a task barrier is placed before
+	// exiting, which ensures that every worker except MASTER has backed off.
+	assert(tree.left_subtree_is_idle && tree.right_subtree_is_idle);
+	MASTER assert(quiescent);
 
 	if (tree.left_child != -1) {
 		async_action(notify_workers, chan_tasks[tree.left_child][0]);
+#if BACKOFF == wait_cond
+		SIGNAL(tree.left_child);
+#endif
 	}
 
 	if (tree.right_child != -1) {
 		async_action(notify_workers, chan_tasks[tree.right_child][0]);
+#if BACKOFF == wait_cond
+		SIGNAL(tree.right_child);
+#endif
 	}
 
 	WORKER num_tasks_exec--;
@@ -771,9 +829,16 @@ static void decline_steal_request(struct steal_request *req)
 #ifdef DEBUG_TD
 					PRINTF("Worker %d sends STATE_FAILED to worker %d\n", ID, tree.parent);
 #endif
+#if BACKOFF == wait_cond
+					pthread_mutex_lock(&backoff[ID].lock);
+#endif
 					SEND_REQ_WORKER(tree.parent, req);
 					assert(!tree.waiting_for_tasks);
 					tree.waiting_for_tasks = true;
+#if BACKOFF == wait_cond
+					WAIT();
+					pthread_mutex_unlock(&backoff[ID].lock);
+#endif
 				}
 			} else {
 #ifdef DEBUG_TD
@@ -798,9 +863,16 @@ static void decline_steal_request(struct steal_request *req)
 #ifdef DEBUG_TD
 				PRINTF("Worker %d sends STATE_FAILED to worker %d\n", ID, tree.parent);
 #endif
+#if BACKOFF == wait_cond
+				pthread_mutex_lock(&backoff[ID].lock);
+#endif
 				SEND_REQ_WORKER(tree.parent, req);
 				assert(!tree.waiting_for_tasks);
 				tree.waiting_for_tasks = true;
+#if BACKOFF == wait_cond
+				WAIT();
+				pthread_mutex_unlock(&backoff[ID].lock);
+#endif
 			}
 
 #endif // MAXSTEAL
@@ -1007,6 +1079,10 @@ static inline void share_work(void)
 				assert(tree.right_subtree_is_idle);
 				tree.right_subtree_is_idle = false;
 			}
+#if BACKOFF == wait_cond
+			// Wake up worker
+			SIGNAL(req->ID);
+#endif
 			// Dequeue/discard
 			(void)DEQUEUE_WORK_SHARING_REQUEST();
 		} else {
@@ -1054,14 +1130,20 @@ void *schedule(UNUSED(void *args))
 		while (!RECV_TASK(&task)) {
 			assert(deque_empty(deque));
 			assert(requested);
+#if BACKOFF == sleep_exp
 			if (tree.waiting_for_tasks) {
-				BACKOFF();
+				SLEEP();
 			} else {
 				decline_all_steal_requests();
 			}
+#else
+			decline_all_steal_requests();
+#endif
 		}
 
+#if BACKOFF == sleep_exp
 		backoff_duration = 1;
+#endif
 
 		} // PROFILE
 		loot = task->batch;

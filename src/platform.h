@@ -23,6 +23,10 @@
 #define SPLIT half
 #endif
 
+// Supported worker backoff strategies (-DBACKOFF=[sleep_exp|wait_cond])
+#define sleep_exp 4
+#define wait_cond 5
+
 #define UNUSED(x) x __attribute__((unused))
 
 #define UNREACHABLE() assert(false && "Unreachable")
