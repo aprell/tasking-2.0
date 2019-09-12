@@ -1,5 +1,8 @@
 include ../common-gcc.mk
 
+BUILDDIR := build
+LIBDIR := ../lib
+
 CPPFLAGS += -DNTIME
 CPPFLAGS += -DSTEAL=adaptive
 CPPFLAGS += -DSTEAL_EARLY
@@ -99,14 +102,19 @@ test: $(PROGS)
 include ../rules.mk
 include ../deps.mk
 
-libtasking: ../lib/libtasking.a
+libtasking: $(LIBDIR)/libtasking.a
 
-../lib/libtasking.a: $(tasking_SRCS:.c=.o)
+$(LIBDIR)/libtasking.a: $(BUILDDIR)/libtasking.a
+	@mkdir -p $(LIBDIR)
+	@cp $< $@
+
+$(BUILDDIR)/libtasking.a: $(addprefix $(BUILDDIR)/,$(tasking_SRCS:.c=.o))
 	$(AR) rc $@ $^
 
 .PHONY: veryclean
 veryclean:
-	$(MAKE) clean && rm -f ../lib/*.a
+	$(MAKE) clean
+	rm -rf $(BUILDDIR) $(LIBDIR)
 
 #//// EXPERIMENTAL /////////////////////////////////////////////////////////#
 

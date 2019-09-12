@@ -1,5 +1,7 @@
 include ../../common-gcc.mk
 
+BUILDDIR := build
+
 CPPFLAGS += -DCHANNEL_CACHE=100
 
 CFLAGS += -pthread -fsanitize=address
@@ -18,6 +20,11 @@ throughput_SRCS = throughput.c channel.c
 VPATH += test
 
 test: $(PROGS)
+
+.PHONY: veryclean
+veryclean:
+	$(MAKE) clean
+	rm -rf build
 
 include ../../rules.mk
 include ../../deps.mk

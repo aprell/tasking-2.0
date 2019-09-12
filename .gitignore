@@ -11,6 +11,7 @@
 tags
 stuff
 
+src/channel_shm/build
 src/channel_shm/channel
 src/channel_shm/fib
 src/channel_shm/shift
@@ -22,6 +23,7 @@ src/test/*.ref
 
 src/*.log
 src/*.csv
+src/build
 src/barrier
 src/bpc*
 src/cilksort*
