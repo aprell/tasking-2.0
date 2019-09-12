@@ -20,7 +20,7 @@ endef
 
 all: $(PROGS)
 
-$(BUILDDIR)/%.o: %.c
+$(BUILDDIR)/%.o: %.c Makefile $(wildcard ../*.mk)
 	$(CC) $(CFLAGS) $(CPPFLAGS) -c -o $@ $<
 
 $(foreach prog,$(PROGS),$(eval $(call RULE_template,$(prog))))
