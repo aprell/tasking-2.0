@@ -16,13 +16,21 @@ Available options are:
 
 	-r <n>
 		Set number of repetitions to <n> (default is 10)
+
+	-s
+		Print summary statistics
 EOF
 )
 
-while getopts "hr:" arg; do
+print_stats=0
+
+while getopts "hr:s" arg; do
 	case $arg in
 		r)
 			repetitions=$OPTARG
+			;;
+		s)
+			print_stats=1
 			;;
 		h|*)
 			echo "$usage"
@@ -48,8 +56,18 @@ benchmark() {
 
 	logfile+=".log"
 
-	echo "./testrun.sh -r $repetitions $prog $args > $logfile" 1>&2
-	./testrun.sh -r "$repetitions" "$prog" "$args" > "$logfile"
+	#echo "./testrun.sh -r $repetitions $prog $args > $logfile" 1>&2
+
+	if [ "$print_stats" = 1 ]; then
+		./testrun.sh -r "$repetitions" "$prog" "$args" \
+			| tee "$logfile" \
+			| grep "[Ee]lapsed" \
+			| cut -d ' ' -f 4 \
+			| utils/stats.lua \
+			| tr ',' '\t'
+	else
+		./testrun.sh -r "$repetitions" "$prog" "$args" > "$logfile"
+	fi
 }
 
 if [ $# -gt 0 ]; then
