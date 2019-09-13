@@ -55,11 +55,26 @@ struct backoff_t {
 
 static struct backoff_t backoff[MAXWORKERS];
 
+static inline bool peek(Channel *chan[])
+{
+	bool ret = false;
+	int i;
+
+	for (i = 0; i < MAXSTEAL; i++) {
+		if (channel_peek(chan[i])) {
+			ret = true;
+			break;
+		}
+	}
+
+	return ret;
+}
+
 #define WAIT() \
 do { \
 	/* Locking happens in decline_steal_request */ \
 	PRINTF("Worker %d backing off\n", ID); \
-	while (!channel_peek(chan_tasks[ID][0])) { \
+	while (!peek(chan_tasks[ID])) { \
 		pthread_cond_wait(&backoff[ID].signal, &backoff[ID].lock); \
 	} \
 	/* Unlocking happens in decline_steal_request */ \
