@@ -39,8 +39,18 @@ while getopts "hr:s" arg; do
 	esac
 done
 
+# If `NUM_THREADS` is not defined, get the number of CPUs from `lscpu`
+num_threads=${NUM_THREADS:-$(lscpu | grep ^CPU\(s\) | tr -d ' ' | cut -d ':' -f 2)}
 repetitions=${repetitions:-10}
 shift $((OPTIND-1))
+
+if [ "$print_stats" = 1 ]; then
+	if [ -x "$(command -v column)" ]; then
+		tableize="column -s ',' -o ' | ' -t"
+	else
+		tableize="tr ',' '\t'"
+	fi
+fi
 
 benchmark() {
 	local prog=$1
@@ -51,12 +61,12 @@ benchmark() {
 	logfile="$(basename "$prog")"
 
 	if [ -n "$args" ]; then
-		logfile+="$(printf "_%s" "${args// /_}")"
+		logfile+="$(printf "_%s_%02d" "${args// /_}" "$num_threads")"
 	fi
 
 	logfile+=".log"
 
-	#echo "./testrun.sh -r $repetitions $prog $args > $logfile" 1>&2
+	echo -n "NUM_THREADS=$num_threads " 1>&2
 
 	if [ "$print_stats" = 1 ]; then
 		./testrun.sh -r "$repetitions" "$prog" "$args" \
@@ -64,7 +74,7 @@ benchmark() {
 			| grep "[Ee]lapsed" \
 			| cut -d ' ' -f 4 \
 			| utils/stats.lua \
-			| tr ',' '\t'
+			| eval "$tableize"
 	else
 		./testrun.sh -r "$repetitions" "$prog" "$args" > "$logfile"
 	fi
