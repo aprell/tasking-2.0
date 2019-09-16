@@ -100,27 +100,6 @@ static PRIVATE BoundedStack *channel_stack;
 #define CHANNEL_PUSH(chan)    bounded_stack_push(channel_stack, chan)
 #define CHANNEL_POP()        *bounded_stack_pop(channel_stack)
 
-#ifdef VICTIM_CHECK
-
-struct task_indicator {
-	atomic_t tasks;
-	char __[64 - sizeof(atomic_t)];
-};
-
-static struct task_indicator task_indicators[MAXWORKERS];
-
-#define LIKELY_HAS_TASKS(ID)    (atomic_read(&task_indicators[ID].tasks) > 0)
-#define HAVE_TASKS()             atomic_set(&task_indicators[ID].tasks, 1)
-#define HAVE_NO_TASKS()          atomic_set(&task_indicators[ID].tasks, 0)
-
-#else
-
-#define LIKELY_HAS_TASKS(ID)     true      // Assume yes, victim has tasks
-#define HAVE_TASKS()             ((void)0) // NOOP
-#define HAVE_NO_TASKS()          ((void)0) // NOOP
-
-#endif // VICTIM_CHECK
-
 /*
  * When a steal request is returned to its sender after MAX_STEAL_ATTEMPTS
  * unsuccessful attempts, the steal request changes state to STATE_FAILED and
@@ -393,11 +372,6 @@ int RT_init(void)
 	requested = 0;
 	seed = ID;
 
-#ifdef VICTIM_CHECK
-	assert(sizeof(struct task_indicator) == 64);
-	atomic_set(&task_indicators[ID].tasks, 0);
-#endif
-
 	// A worker has between zero and two children
 	work_sharing_requests = bounded_queue_alloc(2);
 
@@ -518,7 +492,7 @@ static inline int steal_from(struct steal_request *req, int worker)
 	int victim;
 
 	if (req->try < MAX_STEAL_ATTEMPTS) {
-		if (worker != -1 && worker != req->ID && LIKELY_HAS_TASKS(worker)) {
+		if (worker != -1 && worker != req->ID) {
 			victim = worker;
 			return victim;
 		}
@@ -976,15 +950,8 @@ static void handle_steal_request(struct steal_request *req)
 			FORGET_REQ(req);
 			return;
 		} else {
-#ifdef VICTIM_CHECK
-			// Because it's likely that, in the absence of potential victims,
-			// we'd end up sending the steal request right back to us, we just
-			// give up for now
-			FORGET_REQ(req);
-#else
 			// Defer the decision to decline_steal_request
 			decline_steal_request(req);
-#endif
 			return;
 		}
 	}
@@ -1034,7 +1001,6 @@ static void handle_steal_request(struct steal_request *req)
 		// to a different worker
 		assert(deque_empty(deque));
 		decline_steal_request(req);
-		HAVE_NO_TASKS();
 	}
 }
 
@@ -1060,7 +1026,6 @@ static inline bool handle(struct steal_request *req)
 			split_loop(this, req);
 			return true;
 		} else {
-			HAVE_NO_TASKS();
 			FORGET_REQ(req);
 			return false;
 		}
@@ -1071,7 +1036,6 @@ static inline bool handle(struct steal_request *req)
 		// TODO: Is this a reasonable decision?
 		assert(req->ID == tree.left_child || req->ID == tree.right_child);
 	} else {
-		HAVE_NO_TASKS();
 		decline_steal_request(req);
 	}
 
@@ -1170,13 +1134,7 @@ void *schedule(UNUSED(void *args))
 #endif
 		if (loot > 1) {
 			PROFILE(ENQ_DEQ_TASK) task = deque_pop(deque_prepend(deque, task, loot));
-			HAVE_TASKS();
 		}
-#ifdef VICTIM_CHECK
-		if (loot == 1 && SPLITTABLE(task)) {
-			HAVE_TASKS();
-		}
-#endif
 #if STEAL == adaptive
 		num_steals_exec_recently++;
 #endif
@@ -1252,13 +1210,7 @@ empty_local_queue:
 #endif
 	if (loot > 1) {
 		PROFILE(ENQ_DEQ_TASK) task = deque_pop(deque_prepend(deque, task, loot));
-		HAVE_TASKS();
 	}
-#ifdef VICTIM_CHECK
-	if (loot == 1 && SPLITTABLE(task)) {
-		HAVE_TASKS();
-	}
-#endif
 #if STEAL == adaptive
 	num_steals_exec_recently++;
 #endif
@@ -1344,13 +1296,7 @@ void RT_force_future(Channel *chan, void *data, unsigned int size)
 #endif
 		if (loot > 1) {
 			PROFILE(ENQ_DEQ_TASK) task = deque_pop(deque_prepend(deque, task, loot));
-			HAVE_TASKS();
 		}
-#ifdef VICTIM_CHECK
-		if (loot == 1 && SPLITTABLE(task)) {
-			HAVE_TASKS();
-		}
-#endif
 #if STEAL == adaptive
 		num_steals_exec_recently++;
 #endif
@@ -1382,8 +1328,6 @@ void push(Task *task)
 	struct steal_request req;
 
 	deque_push(deque, task);
-
-	HAVE_TASKS();
 
 	PROFILE_STOP(ENQ_DEQ_TASK);
 
@@ -1430,10 +1374,6 @@ Task *pop(void)
 	PROFILE(ENQ_DEQ_TASK) {
 		task = deque_pop(deque);
 	}
-
-#ifdef VICTIM_CHECK
-	if (!task) HAVE_NO_TASKS();
-#endif
 
 	// Sending an idle steal request at this point may lead to termination
 	// detection when we're about to quit! Steal requests with idle == false are okay.
