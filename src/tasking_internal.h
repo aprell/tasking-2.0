@@ -2,9 +2,6 @@
 #define TASKING_INTERNAL_H
 
 #include <stdbool.h>
-#ifdef DISABLE_MANAGER
-#include <assert.h>
-#endif
 #include "platform.h"
 #include "atomic.h"
 #include "task.h"
@@ -17,10 +14,6 @@
 #define WORKER if (ID != MASTER_ID)
 
 // Shared state
-#ifdef DISABLE_MANAGER
-extern atomic_t *td_count;
-#endif
-
 extern int num_workers;
 
 // Private state
@@ -49,50 +42,6 @@ static inline bool is_root_task(Task *task)
 {
 	return task->parent == NULL ? true : false;
 }
-
-// Workers are either working or idle
-enum worker_state {
-	WORKING,
-	IDLE
-};
-
-static inline int get_worker_state(void)
-{
-	return worker_state;
-}
-
-#ifdef DISABLE_MANAGER
-
-static inline void set_worker_state(int state)
-{
-	assert(worker_state != state);
-
-	switch (worker_state = state) {
-	case WORKING:
-		atomic_dec(td_count);
-		break;
-	case IDLE:
-		atomic_inc(td_count);
-		break;
-	default:
-		assert(false && "Invalid worker state");
-		break;
-	}
-}
-
-#else
-
-static inline void set_worker_state(int state)
-{
-	worker_state = state;
-}
-
-#endif
-
-#define is_idle() 		(get_worker_state() == IDLE ? 1 : 0)
-#define is_working()	(get_worker_state() == WORKING ? 1 : 0)
-#define set_idle()		(set_worker_state(IDLE))
-#define set_working() 	(set_worker_state(WORKING))
 
 // Wrapper function for running a new task
 static inline void run_task(Task *task)
@@ -128,9 +77,6 @@ int tasking_internal_exit_signal(void);
 int tasking_internal_exit(void);
 int tasking_internal_barrier(void);
 int tasking_internal_statistics(void);
-#ifdef DISABLE_MANAGER
-bool tasking_all_idle(void);
-#endif
 bool tasking_done(void);
 
 #endif // TASKING_INTERNAL_H

@@ -9,9 +9,6 @@
 #include "affinity.h"
 
 // Shared state
-#ifdef DISABLE_MANAGER
-atomic_t *td_count;
-#endif
 int num_workers;
 
 // Private state
@@ -80,11 +77,6 @@ int tasking_internal_init(UNUSED(int *argc), UNUSED(char ***argv))
 	// Beware of false sharing!
 	// int *shared_var_a = (int *)malloc(sizeof(int));
 	// int *shared_var_b = (int *)malloc(sizeof(int));
-
-#ifdef DISABLE_MANAGER
-	td_count = (atomic_t *)malloc(64 * sizeof(atomic_t));
-	atomic_set(td_count, 0);
-#endif
 
 	IDs = (int *)malloc(num_workers * sizeof(int));
 	worker_threads = (pthread_t *)malloc(num_workers * sizeof(pthread_t));
@@ -204,9 +196,6 @@ int tasking_internal_exit(void)
 	pthread_barrier_destroy(&global_barrier);
 	free(worker_threads);
 	free(IDs);
-#ifdef DISABLE_MANAGER
-	free(td_count);
-#endif
 
 	// Deallocate root task
 	assert(is_root_task(current_task));
@@ -219,13 +208,6 @@ int tasking_internal_barrier(void)
 {
 	return pthread_barrier_wait(&global_barrier);
 }
-
-#ifdef DISABLE_MANAGER
-bool tasking_all_idle(void)
-{
-	return atomic_read(td_count) == num_workers;
-}
-#endif
 
 bool tasking_done(void)
 {
