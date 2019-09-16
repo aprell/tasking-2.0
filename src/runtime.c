@@ -460,7 +460,23 @@ static int next_victim(struct steal_request *req)
 			mark_as_idle(&req->victims, tree.right_child);
 		}
 		assert(!POTENTIAL_VICTIM(ID));
+#ifdef STEAL_LASTVICTIM
+		if (last_victim != -1 && POTENTIAL_VICTIM(last_victim)) {
+			victim = last_victim;
+		} else {
+			// Fall back to random victim selection
+			victim = random_victim(req->victims, req->ID);
+		}
+#elif defined STEAL_LASTTHIEF
+		if (last_thief != -1 && POTENTIAL_VICTIM(last_thief)) {
+			victim = last_thief;
+		} else {
+			// Fall back to random victim selection
+			victim = random_victim(req->victims, req->ID);
+		}
+#else
 		victim = random_victim(req->victims, req->ID);
+#endif // STEAL_LASTVICTIM || STEAL_LASTTHIEF
 	}
 
 #undef POTENTIAL_VICTIM
@@ -485,24 +501,6 @@ static int next_victim(struct steal_request *req)
 
 	return victim;
 }
-
-#if defined STEAL_LASTVICTIM || defined STEAL_LASTTHIEF
-static inline int steal_from(struct steal_request *req, int worker)
-{
-	int victim;
-
-	if (req->try < MAX_STEAL_ATTEMPTS) {
-		if (worker != -1 && worker != req->ID) {
-			victim = worker;
-			return victim;
-		}
-		// worker is unavailable; fall back to random victim selection
-		return next_victim(req);
-	}
-
-	return req->ID;
-}
-#endif // STEAL_LASTVICTIM || STEAL_LASTTHIEF
 
 static void try_send_steal_request(bool);
 static void decline_steal_request(struct steal_request *);
@@ -766,13 +764,7 @@ static void try_send_steal_request(bool idle)
 		struct steal_request req = STEAL_REQUEST_INIT;
 		req.state = idle ? STATE_IDLE : STATE_WORKING;
 		assert(req.try == 0);
-#ifdef STEAL_LASTVICTIM
-		SEND_REQ_WORKER(steal_from(&req, last_victim), &req);
-#elif defined STEAL_LASTTHIEF
-		SEND_REQ_WORKER(steal_from(&req, last_thief), &req);
-#else
 		SEND_REQ_WORKER(next_victim(&req), &req);
-#endif
 		requested++;
 		requests_sent++;
 #if STEAL == adaptive
