@@ -61,10 +61,10 @@ benchmark() {
 	logfile="$(basename "$prog")"
 
 	if [ -n "$args" ]; then
-		logfile+="$(printf "_%s_%02d" "${args// /_}" "$num_threads")"
+		logfile+="$(printf "_%s" "${args// /_}")"
 	fi
 
-	logfile+=".log"
+	logfile+="$(printf "_%02d.log" "$num_threads")"
 
 	echo -n "NUM_THREADS=$num_threads " 1>&2
 
