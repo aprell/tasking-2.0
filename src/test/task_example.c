@@ -7,7 +7,7 @@
 // functions for implementing tasks and futures
 
 // Ignore return value of puts
-DEFINE_ASYNC0(puts, (const char *));
+DEFINE_ASYNC(puts, (const char *));
 
 int sum(int a, int b)
 {
