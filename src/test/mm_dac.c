@@ -197,8 +197,6 @@ int main(int argc, char *argv[])
 	print_matrix(C);
 #endif
 
-	// This should be moved inside TASKING_EXIT()
-	TASKING_BARRIER();
 	TASKING_EXIT();
 
 	mm_base(A, B, D, DIM);

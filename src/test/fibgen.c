@@ -93,7 +93,6 @@ int main(int argc, char *argv[])
 	assert(done == true);
 	chan_free(c);
 
-	TASKING_BARRIER();
 	TASKING_EXIT();
 
 	return 0;

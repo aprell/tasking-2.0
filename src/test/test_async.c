@@ -213,7 +213,6 @@ int main(int argc, char *argv[])
 	assert(AWAIT(f5, long) == N);
 	assert(AWAIT(f4, long) == N);
 
-	TASKING_BARRIER();
 	TASKING_EXIT();
 
 	return 0;

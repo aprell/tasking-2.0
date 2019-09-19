@@ -185,7 +185,6 @@ int main(int argc, char *argv[])
 
 	showStats(t2-t1);
 
-	TASKING_BARRIER();
 	TASKING_EXIT();
 
 	return 0;

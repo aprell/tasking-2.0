@@ -146,8 +146,6 @@ int main(int argc, char *argv[])
 
 	printf("Elapsed wall time: %.2lf ms (%d us per task)\n", end-start, TASK_GRANULARITY);
 
-	// This should be moved inside TASKING_EXIT()
-	TASKING_BARRIER();
 	TASKING_EXIT();
 
 	return 0;

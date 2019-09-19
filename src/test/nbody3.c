@@ -234,8 +234,6 @@ int main(int argc, char *argv[])
 	printf("Elapsed wall time: %.2lf ms (%.2lf ms per iteration)\n", end - start, (end - start)/n);
 	printf("%.10lf\n", energy(N, bodies));
 
-	// This should be moved inside TASKING_EXIT()
-	TASKING_BARRIER();
 	TASKING_EXIT();
 
 	free(bodies);

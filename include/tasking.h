@@ -10,6 +10,7 @@ do { \
 
 #define TASKING_EXIT() \
 do { \
+	TASKING_BARRIER(); \
 	tasking_exit_signal(); \
 	tasking_exit(); \
 } while (0)

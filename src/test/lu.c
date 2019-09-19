@@ -610,8 +610,6 @@ int main(int argc, char *argv[])
 
 	//print_structure((void *)A);
 
-	// This should be moved inside TASKING_EXIT()
-	TASKING_BARRIER();
 	TASKING_EXIT();
 
 	lu_exit();

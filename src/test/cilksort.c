@@ -730,8 +730,6 @@ int main(int argc, char **argv)
 	  printf("Elapsed wall time: %.2f ms\n", end - start);
      }
 
-	 // This should be moved inside TASKING_EXIT()
-	 TASKING_BARRIER();
 	 TASKING_EXIT();
 
      free(array);

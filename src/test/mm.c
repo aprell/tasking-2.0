@@ -447,8 +447,6 @@ int main(int argc, char *argv[])
 	//write_result("test/mm.ref");
 	//verify_result();
 
-	// This should be moved inside TASKING_EXIT()
-	TASKING_BARRIER();
 	TASKING_EXIT();
 
 	mm_exit();
