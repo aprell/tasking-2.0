@@ -24,8 +24,6 @@ static int *IDs;
 static pthread_t *worker_threads;
 static pthread_barrier_t global_barrier;
 
-//pthread_barrier_t td_sync;
-
 static void *worker_entry_fn(void *args)
 {
 	ID = *(int *)args;
@@ -35,8 +33,6 @@ static void *worker_entry_fn(void *args)
 
 	RT_init();
 	tasking_internal_barrier();
-
-	//pthread_barrier_wait(&td_sync);
 
 	RT_schedule();
 	tasking_internal_barrier();
@@ -82,8 +78,6 @@ int tasking_internal_init(UNUSED(int *argc), UNUSED(char ***argv))
 	worker_threads = (pthread_t *)malloc(num_workers * sizeof(pthread_t));
 
 	pthread_barrier_init(&global_barrier, NULL, num_workers);
-
-	//pthread_barrier_init(&td_sync, NULL, num_workers);
 
 	// Master thread
 	ID = IDs[0] = 0;
