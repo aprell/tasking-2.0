@@ -1,7 +1,6 @@
 #include <assert.h>
 #include <stdio.h>
 #include "tasking.h"
-#include "async.h"
 
 // DEFINE_ASYNC and DEFINE_FUTURE expand into data structures and wrapper
 // functions for implementing tasks and futures

@@ -1,6 +1,7 @@
 #ifndef TASKING_H
 #define TASKING_H
 
+#include "async.h"
 #include "runtime.h"
 
 #define TASKING_INIT(argc, argv) \

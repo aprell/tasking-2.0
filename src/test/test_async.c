@@ -1,8 +1,7 @@
+#include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <assert.h>
 #include "tasking.h"
-#include "async.h"
 
 // ASYNC procedures (have asynchronous side effects)
 

@@ -57,7 +57,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "async.h"
 #include "getoptions.h"
 #include "tasking.h"
 #include "wtime.h"

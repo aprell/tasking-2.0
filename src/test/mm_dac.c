@@ -2,7 +2,6 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include "async.h"
 #include "tasking.h"
 #include "wtime.h"
 

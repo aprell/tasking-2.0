@@ -4,7 +4,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "async.h"
 #include "tasking.h"
 #include "uts.h"
 
