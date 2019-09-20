@@ -78,8 +78,12 @@ extern int    checkResult;
 typedef unsigned long long counter_t;
 
 /* Utility Functions */
+#ifndef max
 #define max(a,b) (((a) > (b)) ? (a) : (b))
+#endif
+#ifndef min
 #define min(a,b) (((a) < (b)) ? (a) : (b))
+#endif
 
 void   uts_error(char *str);
 void   uts_parseParams(int argc, char **argv);

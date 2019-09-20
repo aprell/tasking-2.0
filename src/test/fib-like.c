@@ -1,11 +1,11 @@
+#include <assert.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdbool.h>
-#include <assert.h>
 #include <unistd.h>
-#include "tasking.h"
 #include "async.h"
+#include "tasking.h"
 #include "wtime.h"
 
 static int FIB_LIKE_N; // For example, 25

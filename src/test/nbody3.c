@@ -8,14 +8,14 @@
  *
  */
 
+#include <assert.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <math.h>
-#include <assert.h>
 #include <unistd.h>
-#include "tasking.h"
 #include "async.h"
+#include "tasking.h"
 #include "wtime.h"
 
 //#define LOOPTASKS
@@ -34,6 +34,7 @@ typedef struct planet {
 Planet *bodies, *bodies2;
 
 #ifdef LOOPTASKS
+
 void advance(int nbodies, int tick, double dt)
 {
 	Planet b, *from, *to;
@@ -47,7 +48,7 @@ void advance(int nbodies, int tick, double dt)
 		to = bodies2;
 	}
 
-	for_each_task (i) {
+	ASYNC_FOR (i) {
 		memcpy(&b, &from[i], sizeof(Planet));
 		for (j = 0; j < nbodies; j++) {
 			Planet *b2 = &from[j];
@@ -66,12 +67,10 @@ void advance(int nbodies, int tick, double dt)
 		b.z += dt * b.vz;
 
 		memcpy(&to[i], &b, sizeof(Planet));
-
-		RT_loop_split();
 	}
 }
 
-ASYNC_DECL(advance, int nbodies; int tick; double dt, nbodies, tick, dt);
+DEFINE_ASYNC(advance, (int, int, double));
 
 #else
 
@@ -109,8 +108,9 @@ void advance(int i, int nbodies, int tick, double dt)
 	memcpy(&to[i], &b, sizeof(Planet));
 }
 
-ASYNC_DECL(advance, int i; int nbodies; int tick; double dt, i, nbodies, tick, dt);
-#endif
+DEFINE_ASYNC(advance, (int, int, int, double));
+
+#endif // LOOPTASKS
 
 double energy(int nbodies, Planet *bodies)
 {
@@ -215,12 +215,12 @@ int main(int argc, char *argv[])
 		//printf("%5d. time step\n", i+1);
 #ifdef LOOPTASKS
 		// Create a loop task for all bodies
-		ASYNC_FOR(advance, 0, N, N, i%2, 0.001);
+		ASYNC(advance, (0, N), (N, i%2, 0.001));
 #else
 		int j;
-		// Create a task for every body
+		// Create a task for each body
 		for (j = 0; j < N; j++) {
-			ASYNC(advance, j, N, i%2, 0.001);
+			ASYNC(advance, (j, N, i%2, 0.001));
 			//advance(j, N, i%2, 0.001);
 		}
 #endif

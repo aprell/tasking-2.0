@@ -1,12 +1,12 @@
-#include <stdlib.h>
-#include <stdio.h>
-#include <string.h>
-#include <math.h>
 #include <assert.h>
+#include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
-#include "uts.h"
-#include "tasking.h"
 #include "async.h"
+#include "tasking.h"
+#include "uts.h"
 
 #define MAX_THREADS		  	256
 #define GET_NUM_THREADS		num_workers
@@ -38,7 +38,7 @@ char * impl_getName()
 	return "Pthreads";
 }
 
-// construct string with all parameter settings 
+// construct string with all parameter settings
 int impl_paramsToStr(char *strBuf, int ind)
 {
 	ind += sprintf(strBuf+ind, "Execution strategy:  ");
@@ -55,8 +55,8 @@ int impl_parseParam(char *param, char *value)
 		case 'c':
 			chunkSize = atoi(value); break;
 		case 's':
-			doSteal = atoi(value); 
-			if (doSteal != 1 && doSteal != 0) 
+			doSteal = atoi(value);
+			if (doSteal != 1 && doSteal != 0)
 				err = 1;
 			break;
 		default:
@@ -133,7 +133,7 @@ void seqTreeSearch(Node parent)
 
 void parTreeSearch(Node);
 
-ASYNC_DECL(parTreeSearch, Node parent, parent);
+DEFINE_ASYNC(parTreeSearch, (Node));
 
 // Parallel search of UTS trees using work-stealing
 // Note: tree size is measured by the number of push operations
@@ -156,7 +156,7 @@ void parTreeSearch(Node parent)
 			rng_spawn(parent.state.state, child.state.state, i);
 		}
 
-		ASYNC(parTreeSearch, child);
+		ASYNC(parTreeSearch, (child));
 	}
 
 	numNodes[GET_THREAD_NUM].n += numChildren;

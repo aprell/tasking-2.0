@@ -1,7 +1,7 @@
-#include <stdlib.h>
-#include <stdio.h>
-#include <string.h>
 #include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 #include "uts.h"
 
@@ -21,7 +21,7 @@
 #include <omp.h>
 #define PARALLEL         1
 #define COMPILER_TYPE    1
-#define SHARED 
+#define SHARED
 #define SHARED_INDEF
 #define VOLATILE         volatile
 #define MAX_THREADS       32
@@ -34,7 +34,7 @@
 #define INIT_SINGLE_LOCK(zlk) zlk=omp_global_lock_alloc()
 #define SMEMCPY          memcpy
 #define ALLOC            malloc
-#define BARRIER          
+#define BARRIER
 // OpenMP helper function to match UPC lock allocation semantics
 omp_lock_t * omp_global_lock_alloc() {
   omp_lock_t *lock = (omp_lock_t *) malloc(sizeof(omp_lock_t) + 128);
@@ -69,7 +69,7 @@ omp_lock_t * omp_global_lock_alloc() {
 #include <mpp/shmem.h>
 #define PARALLEL         1
 #define COMPILER_TYPE    3
-#define SHARED           
+#define SHARED
 #define SHARED_INDEF
 #define VOLATILE         volatile
 #define MAX_THREADS       64
@@ -87,13 +87,13 @@ omp_lock_t * omp_global_lock_alloc() {
 #define BARRIER          shmem_barrier_all();
 
 // Shmem helper function to match UPC lock allocation semantics
-LOCK_T * shmem_global_lock_alloc() {    
+LOCK_T * shmem_global_lock_alloc() {
     LOCK_T *lock = (LOCK_T *) shmalloc(sizeof(LOCK_T));
     *lock = 0;
     return lock;
 }
 
-#define GET(target,source,from_id) shmem_int_get(&(target),&(source),1,from_id)        
+#define GET(target,source,from_id) shmem_int_get(&(target),&(source),1,from_id)
 #define PUT(target,source,to_id)   shmem_int_put(&(target),&(source),1,to_id)
 
 #define PUT_ALL(a,b)								\
@@ -124,13 +124,13 @@ LOCK_T * shmem_global_lock_alloc() {
 #define INIT_SINGLE_LOCK(zlk)  zlk = pthread_global_lock_alloc()
 #define SMEMCPY          memcpy
 #define ALLOC            malloc
-#define BARRIER           
+#define BARRIER
 
 int pthread_num_threads = 1;              // Command line parameter - default to 1
 pthread_key_t pthread_thread_num;         // Key to store each thread's ID
 
 /* helper function to match UPC lock allocation semantics */
-LOCK_T * pthread_global_lock_alloc() {    
+LOCK_T * pthread_global_lock_alloc() {
     LOCK_T *lock = (LOCK_T *) malloc(sizeof(LOCK_T));
     pthread_mutex_init(lock, NULL);
     return lock;
@@ -148,13 +148,13 @@ LOCK_T * pthread_global_lock_alloc() {
 #define LOCK_T           void
 #define GET_NUM_THREADS  1
 #define GET_THREAD_NUM   0
-#define SET_LOCK(zlk)    
-#define UNSET_LOCK(zlk)  
-#define INIT_LOCK(zlk) 
-#define INIT_SINGLE_LOCK(zlk) 
+#define SET_LOCK(zlk)
+#define UNSET_LOCK(zlk)
+#define INIT_LOCK(zlk)
+#define INIT_SINGLE_LOCK(zlk)
 #define SMEMCPY          memcpy
 #define ALLOC            malloc
-#define BARRIER           
+#define BARRIER
 
 #endif /* END Par. Model Definitions */
 
@@ -199,7 +199,7 @@ double treeImb   =-1;         // Overall imbalance, undefined
 int    hist[MAXHISTSIZE+1][2];      // average # nodes per level
 double unbhist[MAXHISTSIZE+1][3];   // average imbalance per level
 
-int    *rootSize;             // size of the root's children 
+int    *rootSize;             // size of the root's children
 double *rootUnb;              // imbalance of root's children
 
 /* Tseng statistics */
@@ -263,13 +263,13 @@ struct stealStack_t
   int sharedStart;   /* index of start of shared portion of stack */
   int local;         /* index of start of local portion */
   int top;           /* index of stack top */
-  int maxStackDepth;                      /* stack stats */ 
+  int maxStackDepth;                      /* stack stats */
   int nNodes, maxTreeDepth;               /* tree stats  */
   int nLeaves;
   int nAcquire, nRelease, nSteal, nFail;  /* steal stats */
   int wakeups, falseWakeups, nNodes_last;
   double time[SS_NSTATES], timeLast;         /* perf measurements */
-  int entries[SS_NSTATES], curState; 
+  int entries[SS_NSTATES], curState;
   LOCK_T * stackLock; /* lock for manipulation of shared portion */
   Node * stack;       /* addr of actual stack of nodes in local addr space */
   SHARED_INDEF Node * stack_g; /* addr of same stack in global addr space */
@@ -289,7 +289,7 @@ typedef SHARED StealStack * SharedStealStackPtr;
 // shared access to each thread's stealStack
 SHARED SharedStealStackPtr stealStack[MAX_THREADS];
 
-// termination detection 
+// termination detection
 VOLATILE SHARED int cb_cancel;
 VOLATILE SHARED int cb_count;
 VOLATILE SHARED int cb_done;
@@ -309,7 +309,7 @@ char * impl_getName() {
 }
 
 
-// construct string with all parameter settings 
+// construct string with all parameter settings
 int impl_paramsToStr(char *strBuf, int ind) {
   ind += sprintf(strBuf+ind, "Execution strategy:  ");
   if (PARALLEL) {
@@ -324,12 +324,12 @@ int impl_paramsToStr(char *strBuf, int ind) {
   }
   else
     ind += sprintf(strBuf+ind, "Iterative sequential search\n");
-      
+
   return ind;
 }
 
 
-int impl_parseParam(char *param, char *value) {
+int impl_parseParam(char *param, char *value __attribute__((unused))) {
   int err = 0;  // Return 0 on a match, nonzero on an error
 
   switch (param[1]) {
@@ -337,8 +337,8 @@ int impl_parseParam(char *param, char *value) {
     case 'c':
       chunkSize = atoi(value); break;
     case 's':
-      doSteal = atoi(value); 
-      if (doSteal != 1 && doSteal != 0) 
+      doSteal = atoi(value);
+      if (doSteal != 1 && doSteal != 0)
 	err = 1;
       break;
     case 'i':
@@ -359,7 +359,7 @@ int impl_parseParam(char *param, char *value) {
 #else /* !PARALLEL */
 #ifdef UTS_STAT
     case 'u':
-      unbType = atoi(value); 
+      unbType = atoi(value);
       if (unbType > 2) {
         err = 1;
         break;
@@ -418,26 +418,26 @@ void impl_abort(int err) {
  *                                                         *
  ***********************************************************/
 
-/* 
+/*
  * StealStack
  *    Stack of nodes with sharing at the bottom of the stack
- *    and exclusive access at the top for the "owning" thread 
+ *    and exclusive access at the top for the "owning" thread
  *    which has affinity to the stack's address space.
  *
  *    * All operations on the shared portion of the stack
  *      must be guarded using the stack-specific lock.
  *    * Elements move between the shared and exclusive
- *      portion of the stack solely under control of the 
+ *      portion of the stack solely under control of the
  *      owning thread. (ss_release and ss_acquire)
  *    * workAvail is the count of elements in the shared
- *      portion of the stack.  It may be read without 
+ *      portion of the stack.  It may be read without
  *      acquiring the stack lock, but of course its value
  *      may not be acurate.  Idle threads read workAvail in
- *      this speculative fashion to minimize overhead to 
+ *      this speculative fashion to minimize overhead to
  *      working threads.
  *    * Elements can be stolen from the bottom of the shared
- *      portion by non-owning threads.  The values are 
- *      reserved under lock by the stealing thread, and then 
+ *      portion by non-owning threads.  The values are
+ *      reserved under lock by the stealing thread, and then
  *      copied without use of the lock (currently space for
  *      reserved values is never reclaimed).
  *
@@ -464,7 +464,7 @@ void ss_init(StealStack *s, int nelts) {
   int nbytes = nelts * sizeof(Node);
 
   if (debug & 1)
-    printf("Thread %d intializing stealStack %p, sizeof(Node) = %X\n", 
+    printf("Thread %d intializing stealStack %p, sizeof(Node) = %X\n",
            GET_THREAD_NUM, s, (int)(sizeof(Node)));
 
   // allocate stack in shared addr space with affinity to calling thread
@@ -514,13 +514,13 @@ void ss_push(StealStack *s, Node *c) {
   s->maxTreeDepth = max(s->maxTreeDepth, c->height);
 }
 
-/* local top:  get local addr of node at top */ 
+/* local top:  get local addr of node at top */
 Node * ss_top(StealStack *s) {
   Node *r;
   if (s->top <= s->local)
     ss_error("ss_top: empty local stack");
   r = &(s->stack[(s->top) - 1]);
-  if (debug & 1) 
+  if (debug & 1)
     printf("ss_top: Thread %d, posn %d: node %s [%d] nchild = %d\n",
            GET_THREAD_NUM, s->top - 1, rng_showstate(r->state.state, debug_str),
            r->height, r->numChildren);
@@ -536,10 +536,10 @@ void ss_pop(StealStack *s) {
   r = &(s->stack[s->top]);
   if (debug & 1)
     printf("ss_pop: Thread %d, posn %d: node %s [%d] nchild = %d\n",
-           GET_THREAD_NUM, s->top, rng_showstate(r->state.state, debug_str), 
+           GET_THREAD_NUM, s->top, rng_showstate(r->state.state, debug_str),
            r->height, r->numChildren);
 }
-  
+
 /* local top position:  stack index of top element */
 int ss_topPosn(StealStack *s)
 {
@@ -589,19 +589,19 @@ int ss_acquire(StealStack *s, int k) {
 int ss_steal(StealStack *s, int victim, int k) {
   int victimLocal, victimShared, victimWorkAvail;
   int ok;
-  
+
   if (s->sharedStart != s->top)
     ss_error("ss_steal: thief attempts to steal onto non-empty stack");
 
   if (s->top + k >= s->stackSize)
     ss_error("ss_steal: steal will overflow thief's stack");
-  
+
   /* lock victim stack and try to reserve k elts */
   if (debug & 32)
     printf("Thread %d wants    SS %d\n", GET_THREAD_NUM, victim);
-  
+
   SET_LOCK(stealStack[victim]->stackLock);
-  
+
 #ifdef _SHMEM
   /* Get remote steal stack */
   SMEMCPY(stealStack[victim], stealStack[victim], sizeof(StealStack), victim);
@@ -609,14 +609,14 @@ int ss_steal(StealStack *s, int victim, int k) {
 
   if (debug & 32)
     printf("Thread %d acquires SS %d\n", GET_THREAD_NUM, victim);
-  
+
   victimLocal = stealStack[victim]->local;
   victimShared = stealStack[victim]->sharedStart;
   victimWorkAvail = stealStack[victim]->workAvail;
-  
+
   if (victimLocal - victimShared != victimWorkAvail)
     ss_error("ss_steal: stealStack invariant violated");
-  
+
   ok = victimWorkAvail >= k;
   if (ok) {
     /* reserve a chunk */
@@ -632,10 +632,10 @@ int ss_steal(StealStack *s, int victim, int k) {
 #endif
   }
   UNSET_LOCK(stealStack[victim]->stackLock);
-  
+
   if (debug & 32)
     printf("Thread %d releases SS %d\n", GET_THREAD_NUM, victim);
-	
+
   /* if k elts reserved, move them to local portion of our stack */
   if (ok) {
     SHARED_INDEF Node * victimStackBase = stealStack[victim]->stack_g;
@@ -655,7 +655,7 @@ int ss_steal(StealStack *s, int victim, int k) {
         printf("ss_steal:  Thread %2d posn %d (steal #%d) receives %s [%d] from thread %d posn %d (%p)\n",
                GET_THREAD_NUM, s->top + i, s->nSteal,
                rng_showstate(r->state.state, debug_str),
-               r->height, victim, victimShared + i, 
+               r->height, victim, victimShared + i,
                (void *) victimSharedStart);
       }
     }
@@ -674,7 +674,7 @@ int ss_steal(StealStack *s, int victim, int k) {
     }
   }
   return (ok);
-} 
+}
 
 /* search other threads for work to steal */
 int findwork(int k) {
@@ -704,7 +704,7 @@ void ss_initState(StealStack *s) {
   }
   s->curState = SS_IDLE;
   if (debug & 8)
-    printf("Thread %d start state %d (t = %f)\n", 
+    printf("Thread %d start state %d (t = %f)\n",
            GET_THREAD_NUM, s->curState, s->timeLast);
 }
 
@@ -717,7 +717,7 @@ void ss_setState(StealStack *s, int state){
   time = uts_wctime();
   s->time[s->curState] +=  time - s->timeLast;
 
-  #ifdef TRACE  
+  #ifdef TRACE
     /* close out last session record */
     s->md->sessionRecords[s->curState][s->entries[s->curState] - 1].endTime = time;
     if (s->curState == SS_WORK)
@@ -745,7 +745,7 @@ void ss_setState(StealStack *s, int state){
 
 #ifdef UTS_STAT
 /*
- * Statistics, 
+ * Statistics,
  * : number of nodes per level
  * : imbalanceness of nodes per level
  *
@@ -772,7 +772,7 @@ void updateHist(Node* c, double unb)
       unbhist[c->height][1]=unb;
     if (unbhist[c->height][2]<unb)
       unbhist[c->height][2]=unb;
-		
+
   }
   else {
     hist[MAXHISTSIZE][1]++;
@@ -782,12 +782,12 @@ void updateHist(Node* c, double unb)
 
 void showHist(FILE *fp)
 {
-  int i;	
+  int i;
   fprintf(fp, "depth\tavgNumChildren\t\tnumChildren\t imb\t maxImb\t minImb\t\n");
   for (i=0; i<MAXHISTSIZE; i++){
     if ((hist[i][0]!=0)&&(hist[i][1]!=0))
-      fprintf(fp, "%d\t%f\t%d\t %lf\t%lf\t%lf\n", i, (double)hist[i][0]/hist[i][1], 
-              hist[i][0], unbhist[i][0]/hist[i][1], unbhist[i][1], unbhist[i][2]);	
+      fprintf(fp, "%d\t%f\t%d\t %lf\t%lf\t%lf\n", i, (double)hist[i][0]/hist[i][1],
+              hist[i][0], unbhist[i][0]/hist[i][1], unbhist[i][1], unbhist[i][2]);
   }
 }
 
@@ -796,47 +796,47 @@ double getImb(Node *c)
   int i=0;
   double avg=.0, tmp=.0;
   double unb=0.0;
-  
+
   avg=(double)c->sizeChildren/c->numChildren;
 
-  for (i=0; i<c->numChildren; i++){		
+  for (i=0; i<c->numChildren; i++){
     if ((type==BIN)&&(c->pp==NULL))
       {
         if (unbType<2)
           tmp=min((double)rootSize[i]/avg, avg/(double)rootSize[i]);
-        else 
+        else
           tmp=max((double)rootSize[i]/avg, avg/(double)rootSize[i]);
-        
+
         if (unbType>0)
           unb+=tmp*rootUnb[i];
-        else 
+        else
           unb+=tmp*rootUnb[i]*rootSize[i];
-      }	
+      }
     else{
       if (unbType<2)
         tmp=min((double)c->size[i]/avg, avg/(double)c->size[i]);
-      else 
+      else
         tmp=max((double)c->size[i]/avg, avg/(double)c->size[i]);
-      
+
       if (unbType>0)
         unb+=tmp*c->unb[i];
-      else 
+      else
         unb+=tmp*c->unb[i]*c->size[i];
     }
   }
-	
+
   if (unbType>0){
-    if (c->numChildren>0) 
+    if (c->numChildren>0)
       unb=unb/c->numChildren;
     else unb=1.0;
   }
   else {
-    if (c->sizeChildren>1) 
+    if (c->sizeChildren>1)
       unb=unb/c->sizeChildren;
     else unb=1.0;
   }
   if ((debug & 1) && unb>1) printf("unb>1%lf\t%d\n", unb, c->numChildren);
-	
+
   return unb;
 }
 
@@ -849,18 +849,18 @@ void getImb_Tseng(Node *c)
       t_avg =0;
       t_max =0;
     }
-  else 
+  else
     {
       t_max = (double)c->maxSizeChildren/(c->sizeChildren-1);
       t_avg = (double)1/c->numChildren;
     }
 
   t_devmaxavg = t_max-t_avg;
-	
+
   if (debug & 1)
-    printf("max\t%lf, %lf, %d, %d, %d\n", t_max, t_avg, 
+    printf("max\t%lf, %lf, %d, %d, %d\n", t_max, t_avg,
            c->maxSizeChildren, c->sizeChildren, c->numChildren);
-	
+
   if (1-t_avg==0)
     t_normdevmaxavg = 1;
   else
@@ -877,16 +877,16 @@ void updateParStat(Node *c)
   double unb;
 
   totalNodes++;
-  if (maxHeight<c->height) 
+  if (maxHeight<c->height)
     maxHeight=c->height;
-	
+
   unb=getImb(c);
   maxImb=max(unb, maxImb);
   minImb=min(unb, minImb);
   updateHist(c, unb);
-  
+
   getImb_Tseng(c);
-	
+
   if (c->pp!=NULL){
     if ((c->type==BIN)&&(c->pp->pp==NULL)){
       rootSize[c->pp->ind]=c->sizeChildren;
@@ -900,15 +900,15 @@ void updateParStat(Node *c)
     c->pp->ind++;
     c->pp->sizeChildren+=c->sizeChildren;
     if (c->pp->maxSizeChildren<c->sizeChildren)
-      c->pp->maxSizeChildren=c->sizeChildren;		
+      c->pp->maxSizeChildren=c->sizeChildren;
   }
-  else 
+  else
     treeImb = unb;
 }
 #endif
 
 /*
- *	Tree Implementation      
+ *	Tree Implementation
  *
  */
 void initNode(Node * child)
@@ -918,7 +918,7 @@ void initNode(Node * child)
   child->numChildren = -1;    // not yet determined
 
 #ifdef UTS_STAT
-  if (stats){	
+  if (stats){
     int i;
     child->ind = 0;
     child->sizeChildren = 1;
@@ -948,11 +948,11 @@ void initRootNode(Node * root, int type)
     root->sizeChildren = 1;
     root->maxSizeChildren = 1;
     root->pp = NULL;
-    
+
     if (type != BIN){
       for (i=0; i<MAXNUMCHILDREN; i++){
         root->size[i] = 0;
-        root->unb[i]  =.0; 
+        root->unb[i]  =.0;
       }
     }
     else {
@@ -972,7 +972,7 @@ void initRootNode(Node * root, int type)
 // forward decl
 void releaseNodes(StealStack *ss);
 
-/* 
+/*
  * Generate all children of the parent
  *
  * details depend on tree type, node type and shape function
@@ -990,10 +990,10 @@ void genChildren(Node * parent, Node * child, StealStack * ss) {
   if (debug & 2) {
     printf("Gen:  Thread %d, posn %2d: node %s [%d] has %2d children\n",
            GET_THREAD_NUM, ss_topPosn(ss),
-           rng_showstate(parent->state.state, debug_str), 
+           rng_showstate(parent->state.state, debug_str),
            parentHeight, numChildren);
   }
-  
+
   // construct children and push onto stack
   if (numChildren > 0) {
     int i, j;
@@ -1020,7 +1020,7 @@ void genChildren(Node * parent, Node * child, StealStack * ss) {
 }
 
 
-    
+
 /*
  *  Parallel tree traversal
  *
@@ -1142,9 +1142,9 @@ void releaseNodes(StealStack *ss){
   }
 }
 
-/* 
- * parallel search of UTS trees using work stealing 
- * 
+/*
+ * parallel search of UTS trees using work stealing
+ *
  *   Note: tree size is measured by the number of
  *         push operations
  */
@@ -1158,9 +1158,9 @@ void parTreeSearch(StealStack *ss) {
 
   /* tree search */
   while (done == 0) {
-    
+
     /* local work */
-    while (ss_localDepth(ss) > 0) {		
+    while (ss_localDepth(ss) > 0) {
 
       ss_setState(ss, SS_WORK);
 
@@ -1179,12 +1179,12 @@ void parTreeSearch(StealStack *ss) {
 #endif
         ss_pop(ss);
       }
-      
+
       // release some nodes for stealing, if enough are available
       // and wake up quiescent threads
       releaseNodes(ss);
     }
-		
+
     /* local work exhausted on this stack - resume tree search if able
      * to re-acquire work from shared portion of this thread's stack
      */
@@ -1196,7 +1196,7 @@ void parTreeSearch(StealStack *ss) {
     if (doSteal) {
       int goodSteal = 0;
       int victimId;
-      
+
       ss_setState(ss, SS_SEARCH);
       victimId = findwork(chunkSize);
       while (victimId != -1 && !goodSteal) {
@@ -1208,7 +1208,7 @@ void parTreeSearch(StealStack *ss) {
       if (goodSteal)
 	  continue;
     }
-	
+
     /* unable to steal work from shared portion of other stacks -
      * enter quiescent state waiting for termination (done != 0)
      * or cancellation because some thread has made work available
@@ -1217,7 +1217,7 @@ void parTreeSearch(StealStack *ss) {
     ss_setState(ss, SS_IDLE);
     done = cbarrier_wait();
   }
-  
+
   /* tree search complete ! */
 }
 
@@ -1305,7 +1305,7 @@ void showStats(double elapsedSecs) {
   if (trel != tacq + tsteal) {
     printf("*** error! total released != total acquired + total stolen\n");
   }
-    
+
   uts_showStats(GET_NUM_THREADS, chunkSize, elapsedSecs, tnodes, tleaves, mheight);
 
   if (verbose > 1) {
@@ -1358,27 +1358,27 @@ void showStats(double elapsedSecs) {
     char * tmpstr;
     char strBuf[5000];
     int  ind = 0;
-    
+
     fp = fopen("stat.txt", "a+w");
     fprintf(fp, "\n------------------------------------------------------------------------------------------------------\n");
     ind = uts_paramsToStr(strBuf, ind);
     ind = impl_paramsToStr(strBuf, ind);
     //showParametersStr(strBuf);
     fprintf(fp, "%s\n", strBuf);
-    
-    fprintf(fp, "\nTotal nodes = %d\n", totalNodes); 
-    fprintf(fp, "Max depth   = %d\n\n", maxHeight); 
-    fprintf(fp, "Tseng ImbMeasure(overall)\n max:\t\t%lf \n avg:\t\t%lf \n devMaxAvg:\t %lf\n normDevMaxAvg: %lf\t\t\n\n", 
-            imb_max/totalNodes, imb_avg/totalNodes, imb_devmaxavg/totalNodes, 
+
+    fprintf(fp, "\nTotal nodes = %d\n", totalNodes);
+    fprintf(fp, "Max depth   = %d\n\n", maxHeight);
+    fprintf(fp, "Tseng ImbMeasure(overall)\n max:\t\t%lf \n avg:\t\t%lf \n devMaxAvg:\t %lf\n normDevMaxAvg: %lf\t\t\n\n",
+            imb_max/totalNodes, imb_avg/totalNodes, imb_devmaxavg/totalNodes,
             imb_normdevmaxavg/totalNodes);
-    
+
     switch (unbType){
     case 0: tmpstr = "(min imb weighted by size)"; break;
     case 1: tmpstr = "(min imb not weighted by size)"; break;
     case 2: tmpstr = "(max imb not weighted by size)"; break;
     default: tmpstr = "(?unknown measure)"; break;
     }
-    fprintf(fp, "ImbMeasure:\t%s\n Overall:\t %lf\n Max:\t\t%lf\n Min:\t\t%lf\n\n", 
+    fprintf(fp, "ImbMeasure:\t%s\n Overall:\t %lf\n Max:\t\t%lf\n Min:\t\t%lf\n\n",
             tmpstr, treeImb, minImb, maxImb);
     showHist(fp);
     fprintf(fp, "\n------------------------------------------------------------------------------------------------------\n\n\n");
@@ -1463,7 +1463,7 @@ int main(int argc, char *argv[]) {
   return pthread_main(argc, argv);
 #endif
 
-#ifdef _SHMEM 
+#ifdef _SHMEM
   start_pes(0);
 #endif
 
@@ -1473,16 +1473,18 @@ int main(int argc, char *argv[]) {
 #ifdef UTS_STAT
   if (stats)
     initHist();
-#endif  
+#endif
 
   /* cancellable barrier initialization (single threaded under OMP) */
   cb_init();
 
 /********** SPMD Parallel Region **********/
+#ifdef _OPENMP
 #pragma omp parallel
+#endif
   {
     double t1, t2, et;
-    StealStack * ss;    
+    StealStack * ss;
 
     /* show parameter settings */
     if (GET_THREAD_NUM == 0) {
@@ -1501,7 +1503,7 @@ int main(int argc, char *argv[]) {
       int i;
       for (i = 0; i < GET_NUM_THREADS; i++) {
         stealStack[i] = (SHARED StealStack *) ALLOC (sizeof(StealStack));
-        ss = (StealStack *) stealStack[i];	
+        ss = (StealStack *) stealStack[i];
         ss_init(ss, MAXSTACKDEPTH);
       }
 
@@ -1510,10 +1512,10 @@ int main(int argc, char *argv[]) {
 
 #else
     stealStack[GET_THREAD_NUM] = (SHARED StealStack *) ALLOC (sizeof(StealStack));
-    ss = (StealStack *) stealStack[GET_THREAD_NUM];	
+    ss = (StealStack *) stealStack[GET_THREAD_NUM];
     ss_init(ss, MAXSTACKDEPTH);
 #endif /* _SHMEM */
-    
+
     /* initialize root node and push on thread 0 stack */
     if (GET_THREAD_NUM == 0) {
       initRootNode(&root, type);
@@ -1521,9 +1523,11 @@ int main(int argc, char *argv[]) {
     }
 
     // line up for the start
-#pragma omp barrier    
+#ifdef _OPENMP
+#pragma omp barrier
+#endif
     BARRIER
-    
+
     /* time parallel search */
     ss_initState(ss);
     t1 = uts_wctime();
@@ -1536,13 +1540,15 @@ int main(int argc, char *argv[]) {
     ss->md->sessionRecords[SS_IDLE][ss->entries[SS_IDLE] - 1].endTime = t2;
 #endif
 
+#ifdef _OPENMP
 #pragma omp barrier
+#endif
     BARRIER
 
     /* display results */
     if (GET_THREAD_NUM == 0) {
       showStats(et);
-    } 
+    }
   }
 /********** End Parallel Region **********/
 

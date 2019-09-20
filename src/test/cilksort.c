@@ -57,9 +57,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "async.h"
 #include "getoptions.h"
 #include "tasking.h"
-#include "async.h"
 #include "wtime.h"
 
 typedef long ELM;

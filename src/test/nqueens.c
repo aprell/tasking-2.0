@@ -25,12 +25,12 @@
  * Copyright (c) 2000 Matteo Frigo
  */
 
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <stdbool.h>
 #include <string.h>
-#include "tasking.h"
 #include "async.h"
+#include "tasking.h"
 #include "wtime.h"
 
 static char *example_solution = NULL;

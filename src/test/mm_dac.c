@@ -2,8 +2,8 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include "tasking.h"
 #include "async.h"
+#include "tasking.h"
 #include "wtime.h"
 
 static int DIM;       // Matrix dimension
@@ -188,7 +188,7 @@ int main(int argc, char *argv[])
 #endif
 
 	start = Wtime_msec();
-	mm_dac_seq(A, B, C, DIM);
+	mm_dac(A, B, C, DIM);
 	end = Wtime_msec();
 
 	printf("Elapsed wall time: %.2lf ms\n", end - start);

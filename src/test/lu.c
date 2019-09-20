@@ -1,11 +1,11 @@
 //#define LOOPTASKS
 
+#include <assert.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <stdbool.h>
-#include <assert.h>
-#include "tasking.h"
 #include "async.h"
+#include "tasking.h"
 #include "wtime.h"
 
 static int DIM; 	// Matrix dimension
