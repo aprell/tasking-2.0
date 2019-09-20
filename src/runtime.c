@@ -1064,7 +1064,7 @@ static inline void share_work(void)
 
 // Receive and handle steal requests
 // Can be called from user code
-void RT_check_for_steal_requests(void)
+void RT_poll(void)
 {
 	if (!bounded_queue_empty(work_sharing_requests)) {
 		share_work();

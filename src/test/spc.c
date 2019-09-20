@@ -51,7 +51,7 @@ void spc_consume(int usec)
 		}
 		if (elapsed >= poll_elapsed) {
 			double RT_poll_start = Wtime_usec();
-			RT_check_for_steal_requests();
+			POLL();
 			RT_poll_elapsed += Wtime_usec() - RT_poll_start;
 			poll_elapsed += POLL_INTERVAL;
 		}

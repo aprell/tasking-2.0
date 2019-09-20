@@ -381,6 +381,6 @@ void fun##_task_func(void *__d __attribute__((unused))) \
 
 // POLL //////////////////////////////////////////////////////////////////////
 
-#define POLL_IMPL() RT_check_for_steal_requests()
+#define POLL_IMPL() RT_poll()
 
 #endif // ASYNC_INTERNAL_H

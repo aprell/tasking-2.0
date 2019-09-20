@@ -18,18 +18,18 @@ typedef Channel *chan;
 do { \
 	typeof(v) __v_tmp = (v); \
 	while (!channel_send(c, &__v_tmp, sizeof(__v_tmp))) \
-		RT_check_for_steal_requests(); \
+		POLL(); \
 	if (channel_unbuffered(c)) { \
 		/* Wait until value has been received */ \
 		while (channel_peek(c)) \
-			RT_check_for_steal_requests(); \
+			POLL(); \
 	} \
 } while (0)
 
 #define chan_recv(c, p) \
 do { \
 	while (!channel_receive(c, p, sizeof(*(p)))) \
-		RT_check_for_steal_requests(); \
+		POLL(); \
 } while (0)
 
 #define LOG(...) { printf(__VA_ARGS__); fflush(stdout); }

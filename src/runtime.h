@@ -36,6 +36,6 @@ Task *pop_child(void);
 Task *task_alloc(void);
 
 // For user code: poll for incoming steal requests and handle them if possible
-void RT_check_for_steal_requests(void);
+void RT_poll(void);
 
 #endif // RUNTIME_H

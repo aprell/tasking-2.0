@@ -21,7 +21,7 @@ void consume(int usec)
 			f2 = f1;
 			f1 = fib;
 		}
-		//RT_check_for_steal_requests();
+		//POLL();
 	}
 }
 
