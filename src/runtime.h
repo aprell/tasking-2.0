@@ -1,9 +1,8 @@
 #ifndef RUNTIME_H
 #define RUNTIME_H
 
+#include "future_internal.h"
 #include "tasking_internal.h"
-#include "channel.h"
-#include "async.h"
 
 #ifndef max
 #define max(a, b) \
@@ -38,10 +37,5 @@ Task *task_alloc(void);
 
 // For user code: poll for incoming steal requests and handle them if possible
 void RT_check_for_steal_requests(void);
-
-// Convenience macro
-// Example: Polling on loop back edges with
-// for (i = 0; i < n; i++, POLL()) ...
-#define POLL() RT_check_for_steal_requests()
 
 #endif // RUNTIME_H

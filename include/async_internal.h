@@ -373,10 +373,14 @@ void fun##_task_func(void *__d __attribute__((unused))) \
 	Task *this = get_current_task(); \
 	assert(this->is_loop); \
 	assert(this->start == this->cur); \
-	for (i = this->start, this->cur++; i < this->end; i++, this->cur++, RT_check_for_steal_requests())
+	for (i = this->start, this->cur++; i < this->end; i++, this->cur++, POLL())
 
 // REDUCE ////////////////////////////////////////////////////////////////////
 
 // Defined in future_internal.h
+
+// POLL //////////////////////////////////////////////////////////////////////
+
+#define POLL_IMPL() RT_check_for_steal_requests()
 
 #endif // ASYNC_INTERNAL_H

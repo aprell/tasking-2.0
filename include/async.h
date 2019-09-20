@@ -45,4 +45,10 @@
 
 #define REDUCE(op, var) REDUCE_IMPL(op, var)
 
+// Poll for incoming steal requests and handle them if possible //////////////
+// Example: Polling on loop back edges with
+// for (i = 0; i < n; i++, POLL()) ...
+
+#define POLL() POLL_IMPL()
+
 #endif // ASYNC_H
