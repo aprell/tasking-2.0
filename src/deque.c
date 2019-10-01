@@ -171,7 +171,7 @@ Task *deque_pop(Deque *dq)
 	return task;
 }
 
-Task *deque_pop_child(Deque *dq, Task *parent)
+Task *deque_pop(Deque *dq, Task *parent)
 {
 	assert(dq != NULL);
 	assert(parent != NULL);

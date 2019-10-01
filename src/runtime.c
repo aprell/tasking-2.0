@@ -1080,7 +1080,7 @@ void RT_poll(void)
 	}
 }
 
-static Task *RT_pop(void);
+static Task *RT_pop(bool children);
 
 // Executed by worker threads
 void *schedule(UNUSED(void *args))
@@ -1091,7 +1091,7 @@ void *schedule(UNUSED(void *args))
 	// Scheduling loop
 	for (;;) {
 		// (1) Private task queue
-		while ((task = RT_pop()) != NULL) {
+		while ((task = RT_pop(/* children = */ false)) != NULL) {
 			PROFILE(RUN_TASK) run_task(task);
 			PROFILE(ENQ_DEQ_TASK) deque_task_cache(deque, task);
 		}
@@ -1168,7 +1168,7 @@ int RT_barrier(void)
 	int loot;
 
 empty_local_queue:
-	while ((task = RT_pop()) != NULL) {
+	while ((task = RT_pop(/* children = */ false)) != NULL) {
 		PROFILE(RUN_TASK) run_task(task);
 		PROFILE(ENQ_DEQ_TASK) deque_task_cache(deque, task);
 	}
@@ -1228,8 +1228,6 @@ RT_barrier_exit:
 	return 0;
 }
 
-static Task *RT_pop_child(void);
-
 #ifdef LAZY_FUTURES
 
 #define READY ((f->has_channel && channel_receive(f->chan, data, size)) || f->set)
@@ -1256,7 +1254,7 @@ void RT_force_future(Channel *chan, void *data, unsigned int size)
 	if (READY)
 		goto RT_force_future_return;
 
-	while ((task = RT_pop_child()) != NULL) {
+	while ((task = RT_pop(/* children = */ true)) != NULL) {
 		PROFILE(RUN_TASK) run_task(task);
 		PROFILE(ENQ_DEQ_TASK) deque_task_cache(deque, task);
 		if (READY)
@@ -1364,52 +1362,17 @@ static inline void try_steal(void)
 
 #endif // STEAL_EARLY
 
-static Task *RT_pop(void)
+static Task *RT_pop(bool children)
 {
 	struct steal_request req;
 	Task *task;
 
 	PROFILE(ENQ_DEQ_TASK) {
-		task = deque_pop(deque);
+		task = children ? deque_pop(deque, get_current_task()) : deque_pop(deque);
 	}
 
 	// Sending an idle steal request at this point may lead to termination
 	// detection when we're about to quit! Steal requests with idle == false are okay.
-
-#ifdef STEAL_EARLY
-	if (task && !task->is_loop) {
-		try_steal();
-	}
-#endif
-
-	share_work();
-
-	// Check if someone requested to steal from us
-	while (RECV_REQ(&req)) {
-		// If we just popped a loop task, we may split right here
-		// Makes handle_steal_request simpler
-		if (deque_empty(deque) && SPLITTABLE(task)) {
-			if (req.ID != ID) {
-				split_loop(task, &req);
-			} else {
-				FORGET_REQ(&req);
-			}
-		} else {
-			handle_steal_request(&req);
-		}
-	}
-
-	return task;
-}
-
-static Task *RT_pop_child(void)
-{
-	struct steal_request req;
-	Task *task;
-
-	PROFILE(ENQ_DEQ_TASK) {
-		task = deque_pop_child(deque, get_current_task());
-	}
 
 #ifdef STEAL_EARLY
 	if (task && !task->is_loop) {

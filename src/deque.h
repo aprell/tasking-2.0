@@ -2,10 +2,11 @@
 #define DEQUE_H
 
 #include <stdbool.h>
-#include "task.h"
-#include "overload_deque_steal_many.h"
-#include "overload_deque_steal_half.h"
+#include "overload_deque_pop.h"
 #include "overload_deque_prepend.h"
+#include "overload_deque_steal_half.h"
+#include "overload_deque_steal_many.h"
+#include "task.h"
 
 //==========================================================================//
 //                                                                          //
@@ -26,7 +27,7 @@ unsigned int deque_num_tasks(Deque *dq);
 
 void deque_push(Deque *dq, Task *task);
 Task *deque_pop(Deque *dq);
-Task *deque_pop_child(Deque *dq, Task *parent);
+Task *deque_pop(Deque *dq, Task *parent);
 Task *deque_steal(Deque *dq);
 Task *deque_steal_many(Deque *dq, Task **tail, int max, int *stolen);
 Task *deque_steal_many(Deque *dq, int max, int *stolen);
