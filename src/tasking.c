@@ -153,7 +153,7 @@ static int tasking_internal_exit(void)
 
 int tasking_exit(void)
 {
-	RT_notify_workers();
+	RT_async_action(RT_EXIT);
 	pthread_barrier_wait(&global_barrier);
 	// -----------------------------------
 

@@ -26,7 +26,12 @@ int RT_init();
 int RT_exit(void);
 int RT_schedule(void);
 int RT_barrier(void);
-void RT_notify_workers(void);
+
+enum RT_async_action_t {
+	RT_EXIT // Ask workers to shut down
+};
+
+void RT_async_action(enum RT_async_action_t);
 
 Task *RT_task_alloc(void);
 void RT_push(Task *task);

@@ -700,7 +700,7 @@ static inline void detect_termination(void)
 }
 
 // Asynchronous call of function fn delivered via channel chan
-// Executed for side effects only
+// Executed for side effects only (no arguments)
 static void async_action(void (*fn)(void), Channel *chan)
 {
 	bool ret;
@@ -724,8 +724,8 @@ static void async_action(void (*fn)(void), Channel *chan)
 
 #define ASYNC_ACTION(fn) void fn(void)
 
-// Notify each other when it's time to shut down
-ASYNC_ACTION(RT_notify_workers)
+// Notify children when it's time to shut down
+static ASYNC_ACTION(RT_EXIT_FN)
 {
 	assert(!tasking_finished);
 	// The following assertions require that a task barrier is placed before
@@ -734,14 +734,14 @@ ASYNC_ACTION(RT_notify_workers)
 	MASTER assert(quiescent);
 
 	if (tree.left_child != -1) {
-		async_action(RT_notify_workers, chan_tasks[tree.left_child][0]);
+		async_action(RT_EXIT_FN, chan_tasks[tree.left_child][0]);
 #if BACKOFF == wait_cond
 		SIGNAL(tree.left_child);
 #endif
 	}
 
 	if (tree.right_child != -1) {
-		async_action(RT_notify_workers, chan_tasks[tree.right_child][0]);
+		async_action(RT_EXIT_FN, chan_tasks[tree.right_child][0]);
 #if BACKOFF == wait_cond
 		SIGNAL(tree.right_child);
 #endif
@@ -750,6 +750,17 @@ ASYNC_ACTION(RT_notify_workers)
 	WORKER num_tasks_exec--;
 
 	tasking_finished = true;
+}
+
+void RT_async_action(enum RT_async_action_t action)
+{
+	switch (action) {
+	case RT_EXIT:
+		RT_EXIT_FN();
+		break;
+	default:
+		break;
+	}
 }
 
 #if STEAL == adaptive
