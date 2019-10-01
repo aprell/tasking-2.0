@@ -23,7 +23,7 @@ static int *IDs;
 static pthread_t *worker_threads;
 static pthread_barrier_t global_barrier;
 
-static int tasking_internal_statistics(void);
+static int tasking_statistics(void);
 
 static void *worker_entry_fn(void *args)
 {
@@ -40,7 +40,7 @@ static void *worker_entry_fn(void *args)
 	pthread_barrier_wait(&global_barrier);
 	// -----------------------------------
 
-	tasking_internal_statistics();
+	tasking_statistics();
 	// -----------------------------------
 
 	RT_exit();
@@ -48,7 +48,7 @@ static void *worker_entry_fn(void *args)
 	return NULL;
 }
 
-static int tasking_internal_init(UNUSED(int *argc), UNUSED(char ***argv))
+int tasking_init(UNUSED(int *argc), UNUSED(char ***argv))
 {
 	static int num_cpus;
 
@@ -117,13 +117,6 @@ static int tasking_internal_init(UNUSED(int *argc), UNUSED(char ***argv))
 	num_tasks_exec = 0;
 	tasking_finished = false;
 
-	return 0;
-}
-
-int tasking_init(int *argc, char ***argv)
-{
-	tasking_internal_init(argc, argv);
-
 	RT_init();
 	pthread_barrier_wait(&global_barrier);
 	// -----------------------------------
@@ -131,9 +124,18 @@ int tasking_init(int *argc, char ***argv)
 	return 0;
 }
 
-static int tasking_internal_exit(void)
+int tasking_exit(void)
 {
 	int i;
+
+	RT_async_action(RT_EXIT);
+	pthread_barrier_wait(&global_barrier);
+	// -----------------------------------
+
+	tasking_statistics();
+	// -----------------------------------
+
+	RT_exit();
 
 	// Join worker threads
 	for (i = 1; i < num_workers; i++) {
@@ -147,21 +149,6 @@ static int tasking_internal_exit(void)
 	// Deallocate root task
 	assert(is_root_task(current_task));
 	free(current_task);
-
-	return 0;
-}
-
-int tasking_exit(void)
-{
-	RT_async_action(RT_EXIT);
-	pthread_barrier_wait(&global_barrier);
-	// -----------------------------------
-
-	tasking_internal_statistics();
-	// -----------------------------------
-
-	RT_exit();
-	tasking_internal_exit();
 
 	return 0;
 }
@@ -188,7 +175,7 @@ extern PRIVATE unsigned int requests_steal_one, requests_steal_half;
 extern PRIVATE unsigned int futures_converted;
 #endif
 
-static int tasking_internal_statistics(void)
+static int tasking_statistics(void)
 {
 	MASTER {
 		printf("\n");
