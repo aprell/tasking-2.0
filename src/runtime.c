@@ -551,6 +551,32 @@ static inline bool RECV_REQ(struct steal_request *req, int n)
 }
 #endif // BACKOFF
 
+static inline bool PEEK_REQ(int n)
+// requires -1 <= n < num_workers
+{
+	bool ret = false;
+
+	// Valid worker ID?
+	if (n == -1) return ret;
+
+	if (n < num_workers) {
+		// Peek at steal requests on behalf of worker n
+		ret = channel_peek(chan_requests[n]);
+
+#if BACKOFF == sleep_exp || BACKOFF == wait_cond
+		if (!ret && tree.left_subtree_is_idle) {
+			ret = PEEK_REQ(left_child(n, num_workers-1));
+		}
+
+		if (!ret && tree.right_subtree_is_idle) {
+			ret = PEEK_REQ(right_child(n, num_workers-1));
+		}
+#endif
+	}
+
+	return ret;
+}
+
 static inline bool RECV_REQ(struct steal_request *req)
 {
 	bool ret;
@@ -1071,8 +1097,7 @@ void RT_poll(void)
 		share_work();
 	}
 
-	// FIXME: Must also peek in channels of children that have backed off
-	if (channel_peek(chan_requests[ID])) {
+	if (PEEK_REQ(ID)) {
 		struct steal_request req;
 		while (RECV_REQ(&req)) {
 			handle(&req);
