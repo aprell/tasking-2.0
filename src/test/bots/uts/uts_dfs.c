@@ -171,7 +171,6 @@ int uts_numChildren(Node *parent)
  ***********************************************************/
 
 #include "tasking.h"
-#include "async.h"
 #include "chanref.h"
 
 #define FREE_LIST_SIZE 100000

@@ -5,8 +5,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#define TASK_SUCCESS 0
-#define TASK_ERROR_BASE 400
 #define TASK_DATA_SIZE (192 - 96)
 #define TASK_SIZE sizeof(Task)
 

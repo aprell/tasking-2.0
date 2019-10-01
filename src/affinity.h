@@ -2,9 +2,9 @@
 #define _GNU_SOURCE
 #endif
 
-#include <string.h>
 #include <pthread.h>
 #include <sched.h>
+#include <string.h>
 #include <syscall.h>
 
 #include "overload_set_thread_affinity.h"

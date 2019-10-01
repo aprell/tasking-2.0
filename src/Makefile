@@ -38,8 +38,7 @@ tasking_SRCS := \
 channel.c \
 deque.c \
 runtime.c \
-tasking.c \
-tasking_internal.c
+tasking.c
 
 SRCS := \
 barrier.c \

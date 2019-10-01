@@ -16,39 +16,8 @@
 
 #define ASYNC0(/* fun, [(i, j),] empty_args */ ...) ASYNC0_IMPL(__VA_ARGS__)
 
-// FUTURE functions (return values in the future) ////////////////////////////
-
-#define DEFINE_FUTURE(rty, fun, args) DEFINE_FUTURE_IMPL(rty, fun, args)
-
-#define FUTURE(/* fun, args [, addr] */ ...) FUTURE_IMPL(__VA_ARGS__)
-
-// Special macros for zero-argument FUTUREs to avoid creating a data structure
-// to collect task arguments /////////////////////////////////////////////////
-
-#define DEFINE_FUTURE0(rty, fun, ...) DEFINE_FUTURE0_IMPL(rty, fun)
-
-#define FUTURE0(/* fun, empty_args [,addr] */ ...) FUTURE0_IMPL(__VA_ARGS__)
-
-// Await a future's result ///////////////////////////////////////////////////
-
-#define AWAIT(fut, ty) AWAIT_IMPL(fut, ty)
-
-// Await all scoped futures' results upon leaving a block ////////////////////
-
-#define AWAIT_ALL AWAIT_ALL_IMPL
-
 // Helper macro for executing splittable tasks ///////////////////////////////
 
 #define ASYNC_FOR(i) ASYNC_FOR_IMPL(i)
-
-// Reductions for splittable tasks ///////////////////////////////////////////
-
-#define REDUCE(op, var) REDUCE_IMPL(op, var)
-
-// Poll for incoming steal requests and handle them if possible //////////////
-// Example: Polling on loop back edges with
-// for (i = 0; i < n; i++, POLL()) ...
-
-#define POLL() POLL_IMPL()
 
 #endif // ASYNC_H

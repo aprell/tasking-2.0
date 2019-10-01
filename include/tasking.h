@@ -2,7 +2,7 @@
 #define TASKING_H
 
 #include "async.h"
-#include "runtime.h"
+#include "future.h"
 
 #define TASKING_INIT(argc, argv) \
 do { \
@@ -12,20 +12,17 @@ do { \
 #define TASKING_EXIT() \
 do { \
 	TASKING_BARRIER(); \
-	tasking_exit_signal(); \
 	tasking_exit(); \
 } while (0)
 
-// Only the master thread can enter a barrier
+// Only the master thread can execute a barrier
 #define TASKING_BARRIER() \
 do { \
-	MASTER RT_barrier(); \
+	tasking_barrier(); \
 } while (0)
 
-extern PRIVATE int ID;
-
-int tasking_init(int *argc, char ***argv);
-int tasking_exit_signal(void);
+int tasking_init(int *, char ***);
 int tasking_exit(void);
+int tasking_barrier(void);
 
 #endif // TASKING_H

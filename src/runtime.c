@@ -1,14 +1,15 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <stdbool.h>
-#include <string.h>
 #include <assert.h>
 #include <pthread.h>
+#include <stdbool.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
 #include "bit.h"
-#include "runtime.h"
+#include "channel.h"
 #include "deque.h"
 #include "profile.h"
+#include "runtime.h"
 #include "worker_tree.h"
 
 // Private task deque
@@ -369,9 +370,6 @@ int RT_init(void)
 
 	assert(channel_stack->top == MAXSTEAL);
 
-	requested = 0;
-	seed = ID;
-
 	// A worker has between zero and two children
 	work_sharing_requests = bounded_queue_alloc(2);
 
@@ -382,6 +380,9 @@ int RT_init(void)
 	pthread_mutex_init(&backoff[ID].lock, NULL);
 	pthread_cond_init(&backoff[ID].signal, NULL);
 #endif
+
+	requested = 0;
+	seed = ID;
 
 	MASTER PRINTF("Number of workers: %d\n", num_workers);
 
@@ -427,7 +428,7 @@ int RT_exit(void)
 	return 0;
 }
 
-Task *task_alloc(void)
+Task *RT_task_alloc(void)
 {
 	return deque_task_new(deque);
 }
@@ -517,7 +518,7 @@ do { \
 			PRINTF("*** Worker %d: blocked on channel send\n", ID); \
 			assert(false && "Check channel capacities!"); \
 		} \
-		if (tasking_done()) break; \
+		if (tasking_finished) break; \
 	} \
 } while (0)
 
@@ -681,7 +682,7 @@ static void async_action(void (*fn)(void), Channel *chan)
 	// Package up and send a dummy task
 	PROFILE(SEND_RECV_TASK) {
 
-	Task *dummy = task_alloc();
+	Task *dummy = RT_task_alloc();
 	dummy->fn = (void (*)(void *))fn;
 	dummy->batch = 1;
 #ifdef STEAL_LASTVICTIM
@@ -698,7 +699,7 @@ static void async_action(void (*fn)(void), Channel *chan)
 #define ASYNC_ACTION(fn) void fn(void)
 
 // Notify each other when it's time to shut down
-ASYNC_ACTION(notify_workers)
+ASYNC_ACTION(RT_notify_workers)
 {
 	assert(!tasking_finished);
 	// The following assertions require that a task barrier is placed before
@@ -707,14 +708,14 @@ ASYNC_ACTION(notify_workers)
 	MASTER assert(quiescent);
 
 	if (tree.left_child != -1) {
-		async_action(notify_workers, chan_tasks[tree.left_child][0]);
+		async_action(RT_notify_workers, chan_tasks[tree.left_child][0]);
 #if BACKOFF == wait_cond
 		SIGNAL(tree.left_child);
 #endif
 	}
 
 	if (tree.right_child != -1) {
-		async_action(notify_workers, chan_tasks[tree.right_child][0]);
+		async_action(RT_notify_workers, chan_tasks[tree.right_child][0]);
 #if BACKOFF == wait_cond
 		SIGNAL(tree.right_child);
 #endif
@@ -1070,6 +1071,7 @@ void RT_poll(void)
 		share_work();
 	}
 
+	// FIXME: Must also peek in channels of children that have backed off
 	if (channel_peek(chan_requests[ID])) {
 		struct steal_request req;
 		while (RECV_REQ(&req)) {
@@ -1077,6 +1079,8 @@ void RT_poll(void)
 		}
 	}
 }
+
+static Task *RT_pop(void);
 
 // Executed by worker threads
 void *schedule(UNUSED(void *args))
@@ -1087,7 +1091,7 @@ void *schedule(UNUSED(void *args))
 	// Scheduling loop
 	for (;;) {
 		// (1) Private task queue
-		while ((task = pop()) != NULL) {
+		while ((task = RT_pop()) != NULL) {
 			PROFILE(RUN_TASK) run_task(task);
 			PROFILE(ENQ_DEQ_TASK) deque_task_cache(deque, task);
 		}
@@ -1136,7 +1140,7 @@ void *schedule(UNUSED(void *args))
 		PROFILE(RUN_TASK) run_task(task);
 		PROFILE(ENQ_DEQ_TASK) deque_task_cache(deque, task);
 
-		if (tasking_done()) break;
+		if (tasking_finished) break;
 	}
 
 	return 0;
@@ -1164,7 +1168,7 @@ int RT_barrier(void)
 	int loot;
 
 empty_local_queue:
-	while ((task = pop()) != NULL) {
+	while ((task = RT_pop()) != NULL) {
 		PROFILE(RUN_TASK) run_task(task);
 		PROFILE(ENQ_DEQ_TASK) deque_task_cache(deque, task);
 	}
@@ -1224,6 +1228,8 @@ RT_barrier_exit:
 	return 0;
 }
 
+static Task *RT_pop_child(void);
+
 #ifdef LAZY_FUTURES
 
 #define READY ((f->has_channel && channel_receive(f->chan, data, size)) || f->set)
@@ -1250,7 +1256,7 @@ void RT_force_future(Channel *chan, void *data, unsigned int size)
 	if (READY)
 		goto RT_force_future_return;
 
-	while ((task = pop_child()) != NULL) {
+	while ((task = RT_pop_child()) != NULL) {
 		PROFILE(RUN_TASK) run_task(task);
 		PROFILE(ENQ_DEQ_TASK) deque_task_cache(deque, task);
 		if (READY)
@@ -1315,7 +1321,7 @@ RT_force_future_return:
 	return;
 }
 
-void push(Task *task)
+void RT_push(Task *task)
 {
 	struct steal_request req;
 
@@ -1358,7 +1364,7 @@ static inline void try_steal(void)
 
 #endif // STEAL_EARLY
 
-Task *pop(void)
+static Task *RT_pop(void)
 {
 	struct steal_request req;
 	Task *task;
@@ -1396,7 +1402,7 @@ Task *pop(void)
 	return task;
 }
 
-Task *pop_child(void)
+static Task *RT_pop_child(void)
 {
 	struct steal_request req;
 	Task *task;
@@ -1501,7 +1507,7 @@ static void split_loop(Task *task, struct steal_request *req)
 
 	PROFILE(ENQ_DEQ_TASK) {
 
-	dup = task_alloc();
+	dup = RT_task_alloc();
 
 	// dup is a copy of the current task
 	*dup = *task;

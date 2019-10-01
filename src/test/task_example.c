@@ -25,13 +25,13 @@ int main(int argc, char *argv[])
 	// ASYNC expands into:
 	//
 	// do {
-	//     Task *__task = task_alloc();
+	//     Task *__task = RT_task_alloc();
 	//     struct puts_task_data __d;
 	//     __task->parent = current_task();
 	//     __task->fn = (void (*)(void *))puts_task_func;
 	//     __d = (typeof(__d)){ "Hello World!" };
 	//     memcpy(__task->data, &__d, sizeof(__d));
-	//     rts_push(__task);
+	//     RT_push(__task);
 	// } while (0);
 
 	// Inserts a task barrier
@@ -42,14 +42,14 @@ int main(int argc, char *argv[])
 	// FUTURE expands into:
 	//
 	// future f = ({
-	//     Task *__task = task_alloc();
+	//     Task *__task = RT_task_alloc();
 	//     struct sum_task_data __d;
 	//     future __f = sum_channel();
 	//     __task->parent = current_task();
 	//     __task->fn = (void (*)(void *))sum_task_func;
 	//     __d = (typeof(__d)){ __f, 1, 2 };
 	//     memcpy(__task->data, &__d, sizeof(__d));
-	//     rts_push(__task);
+	//     RT_push(__task);
 	//     __f;
 	// });
 
@@ -59,7 +59,7 @@ int main(int argc, char *argv[])
 	//
 	// int n = ({
 	//     int __tmp;
-	//     rts_force_future(f, &__tmp, sizeof(__tmp));
+	//     RT_force_future(f, &__tmp, sizeof(__tmp));
 	//     future_free(f);
 	//     __tmp;
 	// });

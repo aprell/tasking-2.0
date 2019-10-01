@@ -1,9 +1,9 @@
+#include <assert.h>
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <pthread.h>
-#include <assert.h>
-#include "wtime.h"
 #include "channel.h"
+#include "wtime.h"
 
 #define NUM_WORKERS 2
 #define N 1000000

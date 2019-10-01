@@ -1,9 +1,9 @@
 // gcc -Wall -Wextra -Wno-sign-compare -fsanitize=address,undefined -DTEST deque.c -o deque && ./deque
+#include <assert.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdbool.h>
-#include <assert.h>
 #include <unistd.h>
 #include "deque.h"
 

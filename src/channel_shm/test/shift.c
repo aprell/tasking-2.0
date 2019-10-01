@@ -1,6 +1,6 @@
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <pthread.h>
 #include "channel.h"
 
 #define WORKER(id) if (ID == (id))

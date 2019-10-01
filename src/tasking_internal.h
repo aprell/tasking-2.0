@@ -2,8 +2,8 @@
 #define TASKING_INTERNAL_H
 
 #include <stdbool.h>
-#include "platform.h"
 #include "atomic.h"
+#include "platform.h"
 #include "task.h"
 #ifdef USE_COZ
 #include "coz.h"
@@ -22,7 +22,6 @@ extern PRIVATE int num_tasks_exec;
 #if STEAL == adaptive
 extern PRIVATE int num_tasks_exec_recently;
 #endif
-extern PRIVATE int worker_state; // unused unless manager is disabled
 extern PRIVATE bool tasking_finished;
 
 // Pointer to the task that is currently running
@@ -71,12 +70,5 @@ static inline void run_task(Task *task)
 	COZ_PROGRESS_NAMED("task executed");
 #endif
 }
-
-int tasking_internal_init(int *, char ***);
-int tasking_internal_exit_signal(void);
-int tasking_internal_exit(void);
-int tasking_internal_barrier(void);
-int tasking_internal_statistics(void);
-bool tasking_done(void);
 
 #endif // TASKING_INTERNAL_H

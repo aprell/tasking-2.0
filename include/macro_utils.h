@@ -1,5 +1,5 @@
-#ifndef ASYNC_INTERNAL_UTILS_H
-#define ASYNC_INTERNAL_UTILS_H
+#ifndef MACRO_UTILS_H
+#define MACRO_UTILS_H
 
 /* Count variadic macro arguments (1-10 arguments, extend as needed) */
 #define VA_NARGS_IMPL(_1, _2, _3, _4, _5, _6, _7, _8, _9, _10, N, ...) N
@@ -94,4 +94,4 @@ do { \
 #define CONCAT_IMPL(x, y) x##y
 #define CONCAT(x, y) CONCAT_IMPL(x, y)
 
-#endif // ASYNC_INTERNAL_UTILS_H
+#endif // MACRO_UTILS_H

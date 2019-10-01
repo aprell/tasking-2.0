@@ -1,12 +1,12 @@
 // gcc -Wall -Wextra -Wno-unused-function -fsanitize=address,undefined -DTEST -I.. channel.c -o channel && ./channel
+#include <assert.h>
+#include <pthread.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdbool.h>
-#include <assert.h>
-#include <pthread.h>
-#include "channel.h"
 #include "atomic.h"
+#include "channel.h"
 
 #if 0
 #include <ck_spinlock.h>

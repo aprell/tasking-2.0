@@ -1,8 +1,8 @@
 #ifndef RUNTIME_H
 #define RUNTIME_H
 
-#include "future_internal.h"
-#include "tasking_internal.h"
+#include "future.h"
+#include "task.h"
 
 #ifndef max
 #define max(a, b) \
@@ -26,16 +26,16 @@ int RT_init();
 int RT_exit(void);
 int RT_schedule(void);
 int RT_barrier(void);
+void RT_notify_workers(void);
+
+Task *RT_task_alloc(void);
+void RT_push(Task *task);
 void RT_force_future(future f, void *data, unsigned int size);
 
-// These functions implement the load balancing between workers
-void push(Task *task);
-Task *pop(void);
-Task *pop_child(void);
-
-Task *task_alloc(void);
-
-// For user code: poll for incoming steal requests and handle them if possible
+// Poll for incoming steal requests and handle them if possible
+// Example: Polling on loop back edges with
+// for (i = 0; i < n; i++, POLL()) ...
+#define POLL() RT_poll()
 void RT_poll(void);
 
 #endif // RUNTIME_H
