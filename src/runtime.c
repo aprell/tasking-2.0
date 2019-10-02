@@ -768,7 +768,6 @@ void RT_async_action(enum RT_async_action_t action)
 #ifndef STEAL_ADAPTIVE_INTERVAL
 #define STEAL_ADAPTIVE_INTERVAL 25
 #endif
-PRIVATE int num_tasks_exec_recently;
 static PRIVATE int num_steals_exec_recently;
 static PRIVATE bool stealhalf;
 PRIVATE unsigned int requests_steal_one, requests_steal_half;
@@ -781,6 +780,13 @@ PRIVATE unsigned int requests_steal_one, requests_steal_half;
 // the requesting worker is in fact idle and has nothing to work on.
 static void try_send_steal_request(bool idle)
 {
+#if STEAL == adaptive
+	// If checkpoint is the total number of tasks that a worker has executed at
+	// the beginning of an evaluation interval, subtracting checkpoint from
+	// num_tasks_exec measures the worker's recent throughput.
+	static PRIVATE int checkpoint = 0;
+#endif
+
 	PROFILE(SEND_RECV_REQ) {
 
 	if (requested < MAXSTEAL) {
@@ -788,11 +794,11 @@ static void try_send_steal_request(bool idle)
 		// Estimate work-stealing efficiency during the last interval
 		// If the value is below a threshold, switch strategies
 		if (num_steals_exec_recently == STEAL_ADAPTIVE_INTERVAL) {
-			double ratio = ((double)num_tasks_exec_recently) / STEAL_ADAPTIVE_INTERVAL;
+			double ratio = ((double)(num_tasks_exec - checkpoint)) / STEAL_ADAPTIVE_INTERVAL;
 			if (stealhalf && ratio < 2) stealhalf = false;
 			else if (!stealhalf && ratio == 1) stealhalf = true;
-			num_tasks_exec_recently = 0;
 			num_steals_exec_recently = 0;
+			checkpoint = num_tasks_exec;
 		}
 #endif
 		// The following assertion no longer holds because we may increment

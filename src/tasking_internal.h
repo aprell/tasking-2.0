@@ -19,9 +19,6 @@ extern int num_workers;
 // Private state
 extern PRIVATE int ID;
 extern PRIVATE int num_tasks_exec;
-#if STEAL == adaptive
-extern PRIVATE int num_tasks_exec_recently;
-#endif
 extern PRIVATE bool tasking_finished;
 
 // Pointer to the task that is currently running
@@ -56,14 +53,8 @@ static inline void run_task(Task *task)
 		// We have executed |end-start| iterations
 		int n = abs(task->end - task->start);
 		num_tasks_exec += n;
-#if STEAL == adaptive
-		num_tasks_exec_recently += n;
-#endif
 	} else {
 		num_tasks_exec++;
-#if STEAL == adaptive
-		num_tasks_exec_recently++;
-#endif
 	}
 
 #ifdef USE_COZ
