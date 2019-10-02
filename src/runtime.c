@@ -768,7 +768,7 @@ void RT_async_action(enum RT_async_action_t action)
 #ifndef STEAL_ADAPTIVE_INTERVAL
 #define STEAL_ADAPTIVE_INTERVAL 25
 #endif
-static PRIVATE int num_steals_exec_recently;
+static PRIVATE int num_recent_steals;
 static PRIVATE bool stealhalf;
 PRIVATE unsigned int requests_steal_one, requests_steal_half;
 #endif
@@ -793,11 +793,11 @@ static void try_send_steal_request(bool idle)
 #if STEAL == adaptive
 		// Estimate work-stealing efficiency during the last interval
 		// If the value is below a threshold, switch strategies
-		if (num_steals_exec_recently == STEAL_ADAPTIVE_INTERVAL) {
+		if (num_recent_steals == STEAL_ADAPTIVE_INTERVAL) {
 			double ratio = ((double)(num_tasks_exec - checkpoint)) / STEAL_ADAPTIVE_INTERVAL;
 			if (stealhalf && ratio < 2) stealhalf = false;
 			else if (!stealhalf && ratio == 1) stealhalf = true;
-			num_steals_exec_recently = 0;
+			num_recent_steals = 0;
 			checkpoint = num_tasks_exec;
 		}
 #endif
@@ -1174,7 +1174,7 @@ void *schedule(UNUSED(void *args))
 			PROFILE(ENQ_DEQ_TASK) task = deque_pop(deque_prepend(deque, task, loot));
 		}
 #if STEAL == adaptive
-		num_steals_exec_recently++;
+		num_recent_steals++;
 #endif
 
 		share_work();
@@ -1250,7 +1250,7 @@ empty_local_queue:
 		PROFILE(ENQ_DEQ_TASK) task = deque_pop(deque_prepend(deque, task, loot));
 	}
 #if STEAL == adaptive
-	num_steals_exec_recently++;
+	num_recent_steals++;
 #endif
 
 	share_work();
@@ -1336,7 +1336,7 @@ void RT_force_future(Channel *chan, void *data, unsigned int size)
 			PROFILE(ENQ_DEQ_TASK) task = deque_pop(deque_prepend(deque, task, loot));
 		}
 #if STEAL == adaptive
-		num_steals_exec_recently++;
+		num_recent_steals++;
 #endif
 
 		share_work();
