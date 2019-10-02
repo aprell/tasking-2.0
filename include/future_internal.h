@@ -46,6 +46,18 @@ do { \
 
 #define FUTURE_GET(fut, res, ty) RT_force_future(fut, res, sizeof(ty))
 
+#define FUTURE_CONVERT(task) \
+do { \
+	/* Lazy allocation */ \
+	lazy_future *f; \
+	memcpy(&f, (task)->data, sizeof(lazy_future *)); \
+	if (!f->has_channel) { \
+		assert(sizeof(f->buf) == 8); \
+		f->chan = channel_alloc(sizeof(f->buf), 0, SPSC); \
+		f->has_channel = true; \
+	} /* else nothing to do; already allocated */ \
+} while (0)
+
 #else // Regular, eagerly allocated futures
 
 typedef Channel *future;

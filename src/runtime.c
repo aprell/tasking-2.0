@@ -943,21 +943,6 @@ static void decline_all_steal_requests(void)
 	PROFILE_START(IDLE);
 }
 
-#ifdef LAZY_FUTURES
-static void convert_lazy_future(Task *task)
-{
-	// Lazy allocation
-	lazy_future *f;
-	memcpy(&f, task->data, sizeof(lazy_future *));
-	if (!f->has_channel) {
-		assert(sizeof(f->buf) == 8);
-		f->chan = channel_alloc(sizeof(f->buf), 0, SPSC);
-		f->has_channel = true;
-		futures_converted++;
-	} // else nothing to do; already allocated
-}
-#endif
-
 #ifdef STEAL_EARLY
 #ifndef STEAL_EARLY_THRESHOLD
 #define STEAL_EARLY_THRESHOLD 0
@@ -1019,7 +1004,10 @@ static void handle_steal_request(struct steal_request *req)
 #ifdef LAZY_FUTURES
 		Task *t;
 		for (t = task; t != NULL; t = t->next) {
-			if (t->has_future) convert_lazy_future(t);
+			if (t->has_future) {
+				FUTURE_CONVERT(t);
+				futures_converted++;
+			}
 		}
 #endif
 		channel_send(req->chan, (void *)&task, sizeof(Task *));
