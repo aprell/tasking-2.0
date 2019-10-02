@@ -77,7 +77,7 @@ do { \
 	__task = RT_task_alloc(); \
 	__task->parent = get_current_task(); \
 	__task->fn = (void (*)(void *))fun##_task_func; \
-	__task->is_loop = true; \
+	__task->splittable = true; \
 	__task->start = (lo); \
 	__task->cur = (lo); \
 	__task->end = (hi); \
@@ -128,7 +128,7 @@ do { \
 	__task = RT_task_alloc(); \
 	__task->parent = get_current_task(); \
 	__task->fn = (void (*)(void *))fun##_task_func; \
-	__task->is_loop = true; \
+	__task->splittable = true; \
 	__task->start = (lo); \
 	__task->cur = (lo); \
 	__task->end = (hi); \
@@ -147,7 +147,7 @@ do { \
 #define ASYNC_FOR_IMPL(i) ASYNC_FOR_EACH(i)
 #define ASYNC_FOR_EACH(i) \
 	Task *this = get_current_task(); \
-	assert(this->is_loop); \
+	assert(this->splittable); \
 	assert(this->start == this->cur); \
 	for (i = this->start, this->cur++; i < this->end; i++, this->cur++, POLL())
 

@@ -45,14 +45,14 @@ static inline bool is_root_task(Task *task)
 // Wrapper function for running a new task
 static inline void run_task(Task *task)
 {
-	//if (task->is_loop)
+	//if (task->splittable)
 	//	fprintf(stderr, "%2d: Running [%2ld,%2ld)\n", ID, task->start, task->end);
 
 	Task *this_ = get_current_task();
 	set_current_task(task);
 	task->fn(task->data);
 	set_current_task(this_);
-	if (task->is_loop) {
+	if (task->splittable) {
 		// We have executed |end-start| iterations
 		int n = abs(task->end - task->start);
 		num_tasks_exec += n;

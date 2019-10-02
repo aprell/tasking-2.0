@@ -188,7 +188,7 @@ PROFILE_EXTERN_DECL(ENQ_DEQ_TASK);
 	__task = RT_task_alloc(); \
 	__task->parent = get_current_task(); \
 	__task->fn = (void (*)(void *))fun##_task_func; \
-	__task->is_loop = true; \
+	__task->splittable = true; \
 	__task->start = (lo); \
 	__task->cur = (lo); \
 	__task->end = (hi); \
@@ -256,7 +256,7 @@ PROFILE_EXTERN_DECL(ENQ_DEQ_TASK);
 	__task = RT_task_alloc(); \
 	__task->parent = get_current_task(); \
 	__task->fn = (void (*)(void *))fun##_task_func; \
-	__task->is_loop = true; \
+	__task->splittable = true; \
 	__task->start = (lo); \
 	__task->cur = (lo); \
 	__task->end = (hi); \

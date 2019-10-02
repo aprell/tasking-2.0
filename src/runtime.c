@@ -968,7 +968,7 @@ static void handle_steal_request(struct steal_request *req)
 	if (req->ID == ID) {
 		assert(req->state != STATE_FAILED);
 		task = get_current_task();
-		long tasks_left = task && task->is_loop ? abs(task->end - task->cur) : 0;
+		long tasks_left = task && task->splittable ? abs(task->end - task->cur) : 0;
 		// Got own steal request
 		// Forget about it if we have more tasks than previously
 #ifdef STEAL_EARLY
@@ -1036,7 +1036,7 @@ static void handle_steal_request(struct steal_request *req)
 
 // Loop task with iterations left for splitting?
 #define SPLITTABLE(t) \
-	((bool)((t) != NULL && (t)->is_loop && abs((t)->end - (t)->cur) > (t)->sst))
+	((bool)((t) != NULL && (t)->splittable && abs((t)->end - (t)->cur) > (t)->sst))
 
 // Convenience function for handling a steal request
 // Returns true if work is available, false otherwise
@@ -1411,7 +1411,7 @@ static Task *RT_pop(bool children)
 	// detection when we're about to quit! Steal requests with idle == false are okay.
 
 #ifdef STEAL_EARLY
-	if (task && !task->is_loop) {
+	if (task && !task->splittable) {
 		try_steal();
 	}
 #endif

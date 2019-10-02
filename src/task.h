@@ -25,7 +25,7 @@ struct task {
 	long end;
 	long chunks;
 	long sst;
-	bool is_loop;
+	bool splittable;
 	bool has_future;
 	// List of futures required by the current task
 	void *futures;
@@ -43,7 +43,7 @@ static inline Task *task_zero(Task *task)
 	task->batch = 0;
 	task->victim = 0;
 
-	task->is_loop = false;
+	task->splittable = false;
 	task->start = 0;
 	task->cur = 0;
 	task->end = 0;

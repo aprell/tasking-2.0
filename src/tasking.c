@@ -107,7 +107,7 @@ int tasking_init(UNUSED(int *argc), UNUSED(char ***argv))
 	set_current_task((Task *)malloc(sizeof(Task)));
 	current_task->parent = NULL;
 	current_task->fn = NULL;
-	current_task->is_loop = false;
+	current_task->splittable = false;
 	current_task->start = 0;
 	current_task->cur = 0;
 	current_task->end = 0;
