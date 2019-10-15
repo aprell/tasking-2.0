@@ -140,6 +140,33 @@ Deque *deque_prepend(Deque *dq, Task *head, unsigned int len)
 	return dq;
 }
 
+// Add list of tasks starting with head to the front of dq
+Deque *deque_prepend(Deque *dq, Task *head)
+{
+	assert(dq != NULL);
+	assert(head != NULL);
+
+	Task *tail = head;
+	unsigned int n = 1;
+
+	// Find the tail
+	while (tail->next != NULL) {
+		tail = tail->next;
+		n++;
+	}
+
+	// Link tail with dq->head
+	assert(tail->next == NULL);
+	tail->next = dq->head;
+	dq->head->prev = tail;
+
+	// Update state of deque
+	dq->head = head;
+	dq->num_tasks += n;
+
+	return dq;
+}
+
 void deque_push(Deque *dq, Task *task)
 {
 	assert(dq != NULL);
@@ -226,11 +253,10 @@ Task *deque_steal(Deque *dq)
 
 // Steal up to half of the deque's tasks, but at most max tasks
 // tail will point to the last task in the returned list (head is returned)
-// stolen will contain the number of transferred tasks
+// stolen will contain the number of transferred tasks if different from NULL
 Task *deque_steal_many(Deque *dq, Task **tail, int max, int *stolen)
 {
 	assert(dq != NULL);
-	assert(stolen != NULL);
 
 	Task *task;
 	int n, i;
@@ -265,17 +291,19 @@ Task *deque_steal_many(Deque *dq, Task **tail, int max, int *stolen)
 
 	dq->num_tasks -= n;
 	dq->num_steals++;
-	*stolen = n;
+
+	if (stolen != NULL) {
+		*stolen = n;
+	}
 
 	return task;
 }
 
 // Steal up to half of the deque's tasks, but at most max tasks
-// stolen will contain the number of transferred tasks
+// stolen will contain the number of transferred tasks if different from NULL
 Task *deque_steal_many(Deque *dq, int max, int *stolen)
 {
 	assert(dq != NULL);
-	assert(stolen != NULL);
 
 	Task *task;
 	int n, i;
@@ -309,18 +337,20 @@ Task *deque_steal_many(Deque *dq, int max, int *stolen)
 
 	dq->num_tasks -= n;
 	dq->num_steals++;
-	*stolen = n;
+
+	if (stolen != NULL) {
+		*stolen = n;
+	}
 
 	return task;
 }
 
 // Steal half of the deque's tasks
 // tail will point to the last task in the returned list (head is returned)
-// stolen will contain the number of transferred tasks
+// stolen will contain the number of transferred tasks if different from NULL
 Task *deque_steal_half(Deque *dq, Task **tail, int *stolen)
 {
 	assert(dq != NULL);
-	assert(stolen != NULL);
 
 	Task *task;
 	int n, i;
@@ -354,13 +384,16 @@ Task *deque_steal_half(Deque *dq, Task **tail, int *stolen)
 
 	dq->num_tasks -= n;
 	dq->num_steals++;
-	*stolen = n;
+
+	if (stolen != NULL) {
+		*stolen = n;
+	}
 
 	return task;
 }
 
 // Steal half of the deque's tasks
-// stolen will contain the number of transferred tasks
+// stolen will contain the number of transferred tasks if different from NULL
 Task *deque_steal_half(Deque *dq, int *stolen)
 {
 	assert(dq != NULL);
@@ -396,7 +429,10 @@ Task *deque_steal_half(Deque *dq, int *stolen)
 
 	dq->num_tasks -= n;
 	dq->num_steals++;
-	*stolen = n;
+
+	if (stolen != NULL) {
+		*stolen = n;
+	}
 
 	return task;
 }

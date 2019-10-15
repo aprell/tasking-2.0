@@ -710,7 +710,6 @@ static void async_action(void (*fn)(void), Channel *chan)
 
 	Task *dummy = RT_task_alloc();
 	dummy->fn = (void (*)(void *))fn;
-	dummy->batch = 1;
 #ifdef STEAL_LASTVICTIM
 	dummy->victim = -1;
 #endif
@@ -996,8 +995,6 @@ static void handle_steal_request(struct steal_request *req)
 
 	if (task) {
 		PROFILE(SEND_RECV_TASK) {
-
-		task->batch = loot;
 #ifdef STEAL_LASTVICTIM
 		task->victim = ID;
 #endif
@@ -1116,7 +1113,6 @@ static Task *RT_pop(bool children);
 void *schedule(UNUSED(void *args))
 {
 	Task *task;
-	int loot;
 
 	// Scheduling loop
 	for (;;) {
@@ -1151,15 +1147,14 @@ void *schedule(UNUSED(void *args))
 #endif
 
 		} // PROFILE
-		loot = task->batch;
 #ifdef STEAL_LASTVICTIM
 		if (task->victim != -1) {
 			last_victim = task->victim;
 			assert(last_victim != ID);
 		}
 #endif
-		if (loot > 1) {
-			PROFILE(ENQ_DEQ_TASK) task = deque_pop(deque_prepend(deque, task, loot));
+		if (task->next != NULL) {
+			PROFILE(ENQ_DEQ_TASK) task = deque_pop(deque_prepend(deque, task));
 		}
 #if STEAL == adaptive
 		num_recent_steals++;
@@ -1195,7 +1190,6 @@ int RT_barrier(void)
 	assert(is_root_task(get_current_task()));
 
 	Task *task;
-	int loot;
 
 empty_local_queue:
 	while ((task = RT_pop(/* children = */ false)) != NULL) {
@@ -1227,15 +1221,14 @@ empty_local_queue:
 	}
 
 	} // PROFILE
-	loot = task->batch;
 #ifdef STEAL_LASTVICTIM
 	if (task->victim != -1) {
 		last_victim = task->victim;
 		assert(last_victim != ID);
 	}
 #endif
-	if (loot > 1) {
-		PROFILE(ENQ_DEQ_TASK) task = deque_pop(deque_prepend(deque, task, loot));
+	if (task->next != NULL) {
+		PROFILE(ENQ_DEQ_TASK) task = deque_pop(deque_prepend(deque, task));
 	}
 #if STEAL == adaptive
 	num_recent_steals++;
@@ -1275,7 +1268,6 @@ void RT_force_future(Channel *chan, void *data, unsigned int size)
 	Task *task;
 	Task *this = get_current_task();
 	struct steal_request req;
-	int loot;
 
 #ifndef LAZY_FUTURES
 	assert(channel_impl(chan) == SPSC);
@@ -1313,15 +1305,14 @@ void RT_force_future(Channel *chan, void *data, unsigned int size)
 		}
 
 		} // PROFILE
-		loot = task->batch;
 #ifdef STEAL_LASTVICTIM
 		if (task->victim != -1) {
 			last_victim = task->victim;
 			assert(last_victim != ID);
 		}
 #endif
-		if (loot > 1) {
-			PROFILE(ENQ_DEQ_TASK) task = deque_pop(deque_prepend(deque, task, loot));
+		if (task->next != NULL) {
+			PROFILE(ENQ_DEQ_TASK) task = deque_pop(deque_prepend(deque, task));
 		}
 #if STEAL == adaptive
 		num_recent_steals++;
@@ -1520,7 +1511,6 @@ static void split_loop(Task *task, struct steal_request *req)
 
 	PROFILE(SEND_RECV_TASK) {
 
-	dup->batch = 1;
 #ifdef STEAL_LASTVICTIM
 	dup->victim = ID;
 #endif

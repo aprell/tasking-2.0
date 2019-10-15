@@ -35,5 +35,6 @@ Task *deque_steal_half(Deque *dq, Task **tail, int *stolen);
 Task *deque_steal_half(Deque *dq, int *stolen);
 Deque *deque_prepend(Deque *dq, Task *head, Task *tail, unsigned int len);
 Deque *deque_prepend(Deque *dq, Task *head, unsigned int len);
+Deque *deque_prepend(Deque *dq, Task *head);
 
 #endif // DEQUE_H

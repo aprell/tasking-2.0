@@ -19,7 +19,7 @@ struct task {
 		struct task *next;
 	};
 	void (*fn)(void *);
-	int batch, victim;
+	int victim;
 	long start;
 	long cur;
 	long end;
@@ -39,8 +39,6 @@ static inline Task *task_zero(Task *task)
 	task->prev = NULL;
 	task->next = NULL;
 	task->fn = NULL;
-
-	task->batch = 0;
 	task->victim = 0;
 
 	task->splittable = false;
