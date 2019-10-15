@@ -5,7 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#define TASK_DATA_SIZE (192 - 96)
+#define TASK_DATA_SIZE (192 - 88)
 #define TASK_SIZE sizeof(Task)
 
 typedef struct task Task;
@@ -24,7 +24,6 @@ struct task {
 	long cur;
 	long end;
 	long chunks;
-	long sst;
 	bool splittable;
 	bool has_future;
 	// List of futures required by the current task
@@ -46,7 +45,6 @@ static inline Task *task_zero(Task *task)
 	task->cur = 0;
 	task->end = 0;
 	task->chunks = 0;
-	task->sst = 0;
 
 	task->has_future = false;
 	task->futures = NULL;

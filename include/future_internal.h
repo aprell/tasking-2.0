@@ -210,7 +210,6 @@ PROFILE_EXTERN_DECL(ENQ_DEQ_TASK);
 	if (__task->chunks == 0) { \
 		__task->chunks = 1; \
 	} \
-	__task->sst = 1; \
 	\
 	__f = FUTURE_ALLOC(fun); \
 	PACK(&__d, __f, args); \
@@ -278,7 +277,6 @@ PROFILE_EXTERN_DECL(ENQ_DEQ_TASK);
 	if (__task->chunks == 0) { \
 		__task->chunks = 1; \
 	} \
-	__task->sst = 1; \
 	\
 	__f = FUTURE_ALLOC(fun); \
 	memcpy(__task->data, &__f, sizeof(__f)); \

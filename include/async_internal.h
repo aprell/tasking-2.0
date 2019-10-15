@@ -86,7 +86,6 @@ do { \
 	if (__task->chunks == 0) { \
 		__task->chunks = 1; \
 	} \
-	__task->sst = 1; \
 	\
 	PACK(&__d, args); \
 	memcpy(__task->data, &__d, sizeof(__d)); \
@@ -137,7 +136,6 @@ do { \
 	if (__task->chunks == 0) { \
 		__task->chunks = 1; \
 	} \
-	__task->sst = 1; \
 	RT_push(__task); \
 	} /* PROFILE */ \
 } while (0)

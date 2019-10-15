@@ -1027,7 +1027,7 @@ static void handle_steal_request(struct steal_request *req)
 
 // Loop task with iterations left for splitting?
 #define SPLITTABLE(t) \
-	((bool)((t) != NULL && (t)->splittable && abs((t)->end - (t)->cur) > (t)->sst))
+	((bool)((t) != NULL && (t)->splittable && abs((t)->end - (t)->cur) > 1))
 
 // Convenience function for handling a steal request
 // Returns true if work is available, false otherwise
@@ -1444,7 +1444,7 @@ static inline long split_guided(Task *task)
 
 	long iters_left = abs(task->end - task->cur);
 
-	assert(iters_left > task->sst);
+	assert(iters_left > 1);
 
 	if (iters_left <= task->chunks) {
 		return split_half(task);
@@ -1463,7 +1463,7 @@ static inline long split_adaptive(Task *task)
 	long iters_left = abs(task->end - task->cur);
 	long num_idle, chunk;
 
-	assert(iters_left > task->sst);
+	assert(iters_left > 1);
 
 	//PRINTF("Worker %2d: %ld of %ld iterations left\n", ID, iters_left, iters_total);
 

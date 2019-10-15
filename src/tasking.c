@@ -112,7 +112,6 @@ int tasking_init(UNUSED(int *argc), UNUSED(char ***argv))
 	current_task->cur = 0;
 	current_task->end = 0;
 	current_task->chunks = 0;
-	current_task->sst = 0;
 
 	num_tasks_exec = 0;
 	tasking_finished = false;
