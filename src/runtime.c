@@ -557,22 +557,44 @@ static inline bool PEEK_REQ(int n)
 	bool ret = false;
 
 	// Valid worker ID?
-	if (n == -1) return ret;
+	if (n == -1 || n >= num_workers) return ret;
 
-	if (n < num_workers) {
-		// Peek at steal requests on behalf of worker n
-		ret = channel_peek(chan_requests[n]);
+	// Peek at steal requests on behalf of worker n
+	ret = channel_peek(chan_requests[n]);
 
 #if BACKOFF == sleep_exp || BACKOFF == wait_cond
-		if (!ret && tree.left_subtree_is_idle) {
-			ret = PEEK_REQ(left_child(n, num_workers-1));
-		}
-
-		if (!ret && tree.right_subtree_is_idle) {
-			ret = PEEK_REQ(right_child(n, num_workers-1));
-		}
-#endif
+	if (!ret && tree.left_subtree_is_idle) {
+		ret = PEEK_REQ(left_child(n, num_workers-1));
 	}
+
+	if (!ret && tree.right_subtree_is_idle) {
+		ret = PEEK_REQ(right_child(n, num_workers-1));
+	}
+#endif
+
+	return ret;
+}
+
+static inline unsigned int COUNT_REQ(int n)
+// requires -1 <= n < num_workers
+{
+	unsigned int ret = 0;
+
+	// Valid worker ID?
+	if (n == -1 || n >= num_workers) return ret;
+
+	// Peek at steal requests on behalf of worker n
+	ret += channel_peek(chan_requests[n]);
+
+#if BACKOFF == sleep_exp || BACKOFF == wait_cond
+	if (tree.left_subtree_is_idle) {
+		ret += COUNT_REQ(left_child(n, num_workers-1));
+	}
+
+	if (tree.right_subtree_is_idle) {
+		ret += COUNT_REQ(right_child(n, num_workers-1));
+	}
+#endif
 
 	return ret;
 }
@@ -1455,8 +1477,6 @@ static inline long split_guided(Task *task)
 	return task->end - task->chunks;
 }
 
-#define IDLE_WORKERS (channel_peek(chan_requests[ID]))
-
 // Split iteration range based on the number of steal requests
 static inline long split_adaptive(Task *task)
 {
@@ -1467,8 +1487,8 @@ static inline long split_adaptive(Task *task)
 
 	//PRINTF("Worker %2d: %ld of %ld iterations left\n", ID, iters_left, iters_total);
 
-	// We have already received one steal request
-	num_idle = IDLE_WORKERS + 1;
+	// We have already removed one steal request
+	num_idle = COUNT_REQ(ID) + 1;
 
 	//PRINTF("Worker %2d: have %ld steal requests\n", ID, num_idle);
 
