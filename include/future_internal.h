@@ -205,12 +205,6 @@ PROFILE_EXTERN_DECL(ENQ_DEQ_TASK);
 	__task->cur = (lo); \
 	__task->end = (hi); \
 	__task->has_future = true; \
-	/* Chunk size, at least 1 */ \
-	__task->chunks = abs((hi) - (lo)) / num_workers; \
-	if (__task->chunks == 0) { \
-		__task->chunks = 1; \
-	} \
-	\
 	__f = FUTURE_ALLOC(fun); \
 	PACK(&__d, __f, args); \
 	memcpy(__task->data, &__d, sizeof(__d)); \
@@ -272,12 +266,6 @@ PROFILE_EXTERN_DECL(ENQ_DEQ_TASK);
 	__task->cur = (lo); \
 	__task->end = (hi); \
 	__task->has_future = true; \
-	/* Chunk size, at least 1 */ \
-	__task->chunks = abs((hi) - (lo)) / num_workers; \
-	if (__task->chunks == 0) { \
-		__task->chunks = 1; \
-	} \
-	\
 	__f = FUTURE_ALLOC(fun); \
 	memcpy(__task->data, &__f, sizeof(__f)); \
 	RT_push(__task); \

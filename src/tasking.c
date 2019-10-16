@@ -110,7 +110,6 @@ int tasking_init(UNUSED(int *argc), UNUSED(char ***argv))
 	current_task->start = 0;
 	current_task->cur = 0;
 	current_task->end = 0;
-	current_task->chunks = 0;
 	current_task->splittable = false;
 
 	num_tasks_exec = 0;

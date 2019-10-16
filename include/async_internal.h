@@ -81,12 +81,6 @@ do { \
 	__task->start = (lo); \
 	__task->cur = (lo); \
 	__task->end = (hi); \
-	/* Chunk size, at least 1 */ \
-	__task->chunks = abs((hi) - (lo)) / num_workers; \
-	if (__task->chunks == 0) { \
-		__task->chunks = 1; \
-	} \
-	\
 	PACK(&__d, args); \
 	memcpy(__task->data, &__d, sizeof(__d)); \
 	RT_push(__task); \
@@ -131,11 +125,6 @@ do { \
 	__task->start = (lo); \
 	__task->cur = (lo); \
 	__task->end = (hi); \
-	/* Chunk size, at least 1 */ \
-	__task->chunks = abs((hi) - (lo)) / num_workers; \
-	if (__task->chunks == 0) { \
-		__task->chunks = 1; \
-	} \
 	RT_push(__task); \
 	} /* PROFILE */ \
 } while (0)

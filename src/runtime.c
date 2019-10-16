@@ -1462,19 +1462,20 @@ static inline long split_half(Task *task)
 // Split iteration range based on the number of workers
 static inline long split_guided(Task *task)
 {
-	assert(task->chunks > 0);
-
 	long iters_left = abs(task->end - task->cur);
 
 	assert(iters_left > 1);
 
-	if (iters_left <= task->chunks) {
+	// This is basically what guided scheduling in OpenMP does
+	long chunk = max(abs(task->end - task->start) / num_workers, 1);
+
+	if (iters_left <= chunk) {
 		return split_half(task);
 	}
 
-	//PRINTF("Worker %2d: sending %ld iterations\n", ID, task->chunks);
+	//PRINTF("Worker %2d: sending %ld iterations\n", ID, chunk);
 
-	return task->end - task->chunks;
+	return task->end - chunk;
 }
 
 // Split iteration range based on the number of steal requests
