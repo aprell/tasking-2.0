@@ -1,4 +1,4 @@
-all clean veryclean libtasking:
+test libtasking clean veryclean:
 	cd src && $(MAKE) $@
 
-.PHONY: all clean veryclean libtasking
+.PHONY: test libtasking clean veryclean
