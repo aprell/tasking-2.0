@@ -241,16 +241,12 @@ static inline void mark_as_idle(unsigned int *victims, int n)
 // requires -1 <= n < num_workers
 {
 	// Valid worker ID?
-	if (n == -1) return;
+	if (n == -1 || n >= num_workers) return;
 
-	int maxID = num_workers-1;
-
-	if (n < num_workers) {
-		mark_as_idle(victims, left_child(n, maxID));
-		mark_as_idle(victims, right_child(n, maxID));
-		// Unset worker n
-		*victims &= ~BIT(n);
-	}
+	mark_as_idle(victims, left_child(n, num_workers-1));
+	mark_as_idle(victims, right_child(n, num_workers-1));
+	// Unset worker n
+	*victims &= ~BIT(n);
 }
 
 // Find the rightmost potential victim != ID
@@ -533,19 +529,15 @@ static inline bool RECV_REQ(struct steal_request *req, int n)
 	bool ret = false;
 
 	// Valid worker ID?
-	if (n == -1) return ret;
+	if (n == -1 || n >= num_workers) return ret;
 
-	int maxID = num_workers-1;
-
-	if (n < num_workers) {
-		// Check for steal requests on behalf of worker n
-		PROFILE(SEND_RECV_REQ) {
-			//PRINTF("Worker %d checking for steal requests on behalf of worker %d\n", ID, n);
-			ret = channel_receive(chan_requests[n], req, sizeof(*req));
-		} // PROFILE
-		if (!ret) ret = RECV_REQ(req, left_child(n, maxID));
-		if (!ret) ret = RECV_REQ(req, right_child(n, maxID));
-	}
+	// Check for steal requests on behalf of worker n
+	PROFILE(SEND_RECV_REQ) {
+		//PRINTF("Worker %d checking for steal requests on behalf of worker %d\n", ID, n);
+		ret = channel_receive(chan_requests[n], req, sizeof(*req));
+	} // PROFILE
+	if (!ret) ret = RECV_REQ(req, left_child(n, num_workers-1));
+	if (!ret) ret = RECV_REQ(req, right_child(n, num_workers-1));
 
 	return ret;
 }
@@ -1117,9 +1109,7 @@ static inline void share_work(void)
 // Can be called from user code
 void RT_poll(void)
 {
-	if (!bounded_queue_empty(work_sharing_requests)) {
-		share_work();
-	}
+	share_work();
 
 	if (PEEK_REQ(ID)) {
 		struct steal_request req;
@@ -1414,6 +1404,7 @@ static Task *RT_pop(bool children)
 		task = children ? deque_pop(deque, get_current_task()) : deque_pop(deque);
 	}
 
+	// TODO: Is this comment still accurate?
 	// Sending an idle steal request at this point may lead to termination
 	// detection when we're about to quit! Steal requests with idle == false are okay.
 
