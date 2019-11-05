@@ -4,8 +4,8 @@ An evolution of the task-parallel runtime system/library developed in my
 [thesis][1]
 
 ## Build
+On x86-64 GNU/Linux:
 ```console
-$ # On x86-64 GNU/Linux:
 $ cd src
 $ make
 (...)
@@ -13,7 +13,6 @@ $ make
 
 ## Test
 ```console
-$ cd src
 $ ./testrun.sh -d
 ./spc 10000 1: .......... ✔
 ./bpc 10000 9 1: .......... ✔
@@ -23,7 +22,6 @@ $ ./testrun.sh -d
 
 ## Benchmark
 ```console
-$ cd src
 $ NUM_THREADS=4 ./benchmark.sh -s ./fib-like 30 1
 NUM_THREADS=4 ./fib-like 30 1: .......... ✔
 Min     | P10     | P25     | Median  | P75     | P90     | Max     | P75-P25 | P90-P10 | Max-Min | Mean ± RSD
