@@ -45,16 +45,15 @@
   ends the recursive subdivision determines the number of tasks and the task
   granularity. To keep things simple, *N* must be a power of two.
 
-- ***N*****-Body**, a simple simulation of 1024 planets, adapted from the
-  [Computer Language Benchmarks Game][4] (formerly called The Great Computer
-  Language Shootout).
+- **N-Body**, a simple simulation of 1024 planets, adapted from the [Computer
+  Language Benchmarks Game][4] (formerly called The Great Computer Language
+  Shootout).
 
-- ***N*****-Queens**, a recursive backtracking algorithm that finds all
-  possible solutions to the *N*-Queens problem of placing *N* queens on an *N*
-  &#10005; *N* chessboard such that no queen can attack other queens. The code
-  is based on the OpenMP version from the [Barcelona OpenMP Tasks Suite
-  (BOTS)][3], which in turn is based on the version distributed with [MIT
-  Cilk][2].
+- **N-Queens**, a recursive backtracking algorithm that finds all possible
+  solutions to the *N*-Queens problem of placing *N* queens on an *N* &#10005;
+  *N* chessboard such that no queen can attack other queens. The code is based
+  on the OpenMP version from the [Barcelona OpenMP Tasks Suite (BOTS)][3],
+  which in turn is based on the version distributed with [MIT Cilk][2].
 
 - **Quicksort**, a well-known recursive algorithm that performs an in-place
   sort of an array of *n* integers by partitioning it into two sub-arrays
