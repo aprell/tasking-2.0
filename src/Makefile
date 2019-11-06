@@ -60,7 +60,6 @@ spc.c \
 task_example.c \
 test_async.c \
 uts.c \
-uts_dfs.c \
 uts_seq.c \
 uts_shm.c \
 $(tasking_SRCS)
