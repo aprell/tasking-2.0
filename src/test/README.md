@@ -25,6 +25,26 @@
   microseconds before returning. This simulates a cut-off, as if tasks were
   inlined after reaching a certain recursion depth.
 
+- **LU**, a blocked LU decomposition of a sparse *N* &#10005; *N* matrix of
+  doubles, partitioned into (*N*/*B*)<sup>2</sup> *B* &#10005; *B* blocks. The
+  block size *B* determines the task granularity and must divide *N*. The
+  sparsity of the matrix &mdash; the fraction or percentage of blocks that
+  contain only zeros &mdash; increases with the number of blocks in each
+  dimension. Blocks of zeros are not allocated. The code is based on an old
+  benchmark written for Cell Superscalar (CellSs), back in the days when the
+  Cell processor was still around. A more recent version of this benchmark
+  uses OpenMP and is included in the [Barcelona OpenMP Tasks Suite (BOTS)][3].
+
+- **MM**, a blocked matrix multiplication of two *N* &#10005; *N* matrices of
+  doubles, each partitioned into (*N*/*B*)<sup>2</sup> *B* &#10005; *B*
+  blocks. The block size *B* determines the task granularity and must divide
+  *N*.
+
+- **MM DAC**, a divide-and-conquer *O*(*n*<sup>3</sup>) matrix
+  multiplication of two *N* &#10005; *N* matrices of doubles. The cut-off that
+  ends the recursive subdivision determines the number of tasks and the task
+  granularity. To keep things simple, *N* must be a power of two.
+
 - **Quicksort**, a well-known recursive algorithm that performs an in-place
   sort of an array of *n* integers by partitioning it into two sub-arrays
   according to some pivot element and recursively sorting the sub-arrays. The
@@ -49,3 +69,4 @@ Still TODO
 
 [1]: https://dl.acm.org/citation.cfm?id=1654113
 [2]: http://supertech.lcs.mit.edu/cilk/index.html
+[3]: https://github.com/bsc-pm/bots
