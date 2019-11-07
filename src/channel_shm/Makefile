@@ -19,12 +19,10 @@ throughput_SRCS = throughput.c channel.c
 
 VPATH += test
 
-test: $(PROGS)
-
-.PHONY: veryclean
-veryclean:
-	$(MAKE) clean
-	rm -rf build
-
 include ../../rules.mk
 include ../../deps.mk
+
+test: $(PROGS)
+
+clean::
+	rm -rf $(BUILDDIR)

@@ -11,10 +11,7 @@ ifeq ($(wildcard $(BUILDDIR)/deps),)
   $(info $(shell mkdir -p $(BUILDDIR)/deps))
 endif
 
-# Prevent make from generating dependencies when running 'make clean' or
-# 'make veryclean'
+# Prevent make from generating dependencies when running 'make clean'
 ifneq ($(MAKECMDGOALS),clean)
-  ifneq ($(MAKECMDGOALS),veryclean)
-    -include $(DEPS)
-  endif
+  -include $(DEPS)
 endif
