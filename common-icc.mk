@@ -10,5 +10,3 @@ LDFLAGS +=
 # Warning #2259: non-pointer conversion [...] may lose significant bits
 # Warning #3180: unrecognized OpenMP #pragma
 DISABLE = -wd161,2259,3180
-
-INCLUDE = -I. -I../include

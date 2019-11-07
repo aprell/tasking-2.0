@@ -58,7 +58,7 @@ benchmark() {
 	local args=$*
 	local logfile
 
-	logfile="$(basename "$prog")"
+	logfile="benchmark.output/$(basename "$prog")"
 
 	if [ -n "$args" ]; then
 		logfile+="$(printf "_%s" "${args// /_}")"
@@ -79,6 +79,8 @@ benchmark() {
 		./testrun.sh -r "$repetitions" "$prog" "$args" > "$logfile"
 	fi
 }
+
+mkdir -p benchmark.output
 
 if [ $# -gt 0 ]; then
 	benchmark "$@"

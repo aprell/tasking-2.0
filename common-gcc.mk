@@ -6,5 +6,3 @@ CFLAGS += $(addprefix -Wno-,$(DISABLE))
 CFLAGS += $(INCLUDE)
 
 DISABLE = unused-function
-
-INCLUDE = -I. -I../include

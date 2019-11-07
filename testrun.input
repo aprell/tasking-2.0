@@ -1,0 +1,4 @@
+build/spc 10000 1
+build/bpc 10000 9 1
+build/bpc 10000 9 10 1
+build/fib-like 30 1
