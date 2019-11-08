@@ -346,13 +346,8 @@ int RT_init(void)
 
 	deque = deque_new();
 
-	MASTER {
-		// Unprocessed update message followed by new steal request
-		// => up to two messages per worker (assuming MAXSTEAL == 1)
-		chan_requests[ID] = channel_alloc(sizeof(struct steal_request), MAXSTEAL * num_workers * 2, MPSC);
-	} else {
-		chan_requests[ID] = channel_alloc(sizeof(struct steal_request), MAXSTEAL * num_workers, MPSC);
-	}
+	// At most MAXSTEAL steal requests per worker
+	chan_requests[ID] = channel_alloc(sizeof(struct steal_request), MAXSTEAL * num_workers, MPSC);
 
 	// At most MAXSTEAL steal requests and thus different channels
 	channel_stack = bounded_stack_alloc(MAXSTEAL);
