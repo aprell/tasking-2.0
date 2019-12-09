@@ -518,72 +518,75 @@ do { \
 #if BACKOFF == sleep_exp || BACKOFF == wait_cond
 #include "overload_RECV_REQ.h"
 
-static inline bool RECV_REQ(struct steal_request *req, int n)
-// requires -1 <= n < num_workers
+static inline bool RECV_REQ(struct steal_request *req, int worker, int lvl)
+// requires -1 <= worker < num_workers
 {
+	assert(-1 <= worker && worker < num_workers);
+
 	bool ret = false;
+	int i;
 
 	// Valid worker ID?
-	if (n == -1 || n >= num_workers) return ret;
+	if (worker == -1) return ret;
 
-	// Check for steal requests on behalf of worker n
-	PROFILE(SEND_RECV_REQ) {
-		//PRINTF("Worker %d checking for steal requests on behalf of worker %d\n", ID, n);
-		ret = channel_receive(chan_requests[n], req, sizeof(*req));
-	} // PROFILE
-	if (!ret) ret = RECV_REQ(req, left_child(n, num_workers-1));
-	if (!ret) ret = RECV_REQ(req, right_child(n, num_workers-1));
+	for (i = worker; i < min(worker + (1 << lvl), num_workers); i++) {
+		// Check for steal requests on behalf of worker i
+		PROFILE(SEND_RECV_REQ) {
+			//PRINTF("Worker %d checking for steal requests on behalf of worker %d\n", ID, i);
+			ret = channel_receive(chan_requests[i], req, sizeof(*req));
+			if (ret) return ret;
+		} // PROFILE
+	}
 
-	return ret;
+	return RECV_REQ(req, left_child(worker, num_workers-1), lvl+1);
 }
+
+static inline unsigned int COUNT_REQ(int worker, int lvl)
+// requires -1 <= worker < num_workers
+{
+	assert(-1 <= worker && worker < num_workers);
+
+	unsigned int ret = 0;
+	int i;
+
+	// Valid worker ID?
+	if (worker == -1) return ret;
+
+	for (i = worker; i < min(worker + (1 << lvl), num_workers); i++) {
+		// Count steal requests on behalf of worker i
+		ret += channel_peek(chan_requests[i]);
+	}
+
+	return COUNT_REQ(left_child(worker, num_workers-1), lvl+1);
+}
+
 #endif // BACKOFF
 
-static inline bool PEEK_REQ(int n)
-// requires -1 <= n < num_workers
+static inline bool PEEK_REQ(int worker, int lvl)
+// requires -1 <= worker < num_workers
 {
+	assert(-1 <= worker && worker < num_workers);
+#ifndef BACKOFF
+	assert(lvl == 0);
+#endif
+
 	bool ret = false;
+	int i;
 
 	// Valid worker ID?
-	if (n == -1 || n >= num_workers) return ret;
+	if (worker == -1) return ret;
 
-	// Peek at steal requests on behalf of worker n
-	ret = channel_peek(chan_requests[n]);
+	for (i = worker; i < min(worker + (1 << lvl), num_workers); i++) {
+		// Peek at steal requests on behalf of worker i
+		ret = channel_peek(chan_requests[i]);
+		if (ret) return ret;
+	}
 
 #if BACKOFF == sleep_exp || BACKOFF == wait_cond
-	if (!ret && tree.left_subtree_is_idle) {
-		ret = PEEK_REQ(left_child(n, num_workers-1));
-	}
-
-	if (!ret && tree.right_subtree_is_idle) {
-		ret = PEEK_REQ(right_child(n, num_workers-1));
-	}
-#endif
-
+	return PEEK_REQ(left_child(worker, num_workers-1), lvl+1);
+#else
 	return ret;
-}
-
-static inline unsigned int COUNT_REQ(int n)
-// requires -1 <= n < num_workers
-{
-	unsigned int ret = 0;
-
-	// Valid worker ID?
-	if (n == -1 || n >= num_workers) return ret;
-
-	// Peek at steal requests on behalf of worker n
-	ret += channel_peek(chan_requests[n]);
-
-#if BACKOFF == sleep_exp || BACKOFF == wait_cond
-	if (tree.left_subtree_is_idle) {
-		ret += COUNT_REQ(left_child(n, num_workers-1));
-	}
-
-	if (tree.right_subtree_is_idle) {
-		ret += COUNT_REQ(right_child(n, num_workers-1));
-	}
 #endif
-
-	return ret;
 }
 
 static inline bool RECV_REQ(struct steal_request *req)
@@ -618,11 +621,11 @@ static inline bool RECV_REQ(struct steal_request *req)
 	// which means it might stop responding to messages.
 
 	if (!ret && tree.left_subtree_is_idle) {
-		ret = RECV_REQ(req, left_child(ID, num_workers-1));
+		ret = RECV_REQ(req, left_child(ID, num_workers-1), /* lvl = */ 0);
 	}
 
 	if (!ret && tree.right_subtree_is_idle) {
-		ret = RECV_REQ(req, right_child(ID, num_workers-1));
+		ret = RECV_REQ(req, right_child(ID, num_workers-1), /* lvl = */ 0);
 	}
 #endif
 
@@ -1106,7 +1109,7 @@ void RT_poll(void)
 {
 	share_work();
 
-	if (PEEK_REQ(ID)) {
+	if (PEEK_REQ(ID, /* lvl = */ 0)) {
 		struct steal_request req;
 		while (RECV_REQ(&req)) {
 			handle(&req);
@@ -1475,7 +1478,17 @@ static inline long split_adaptive(Task *task)
 	//PRINTF("Worker %2d: %ld of %ld iterations left\n", ID, iters_left, iters_total);
 
 	// We have already removed one steal request
-	num_idle = COUNT_REQ(ID) + 1;
+	num_idle = channel_peek(chan_requests[ID]) + 1;
+
+#if BACKOFF == sleep_exp || BACKOFF == wait_cond
+	if (tree.left_subtree_is_idle) {
+		num_idle += COUNT_REQ(left_child(ID, num_workers-1), /* lvl = */ 0);
+	}
+
+	if (tree.right_subtree_is_idle) {
+		num_idle += COUNT_REQ(right_child(ID, num_workers-1), /* lvl = */ 0);
+	}
+#endif
 
 	//PRINTF("Worker %2d: have %ld steal requests\n", ID, num_idle);
 
