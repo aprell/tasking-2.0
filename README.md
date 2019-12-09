@@ -3,6 +3,9 @@
 An evolution of the task-parallel runtime system/library developed in my
 [thesis][1]
 
+Related: Check out [Weave][2], a [multithreading runtime][3] for the [Nim
+programming language][4].
+
 ## Build
 On x86-64 GNU/Linux:
 ```console
@@ -33,3 +36,6 @@ Min     | P10     | P25     | Median  | P75     | P90     | Max     | P75-P25 | 
 <!-- References -->
 
 [1]: https://epub.uni-bayreuth.de/2990
+[2]: https://github.com/mratsim/weave
+[3]: https://github.com/nim-lang/RFCs/issues/160
+[4]: https://nim-lang.org
