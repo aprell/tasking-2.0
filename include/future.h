@@ -24,8 +24,14 @@
 
 #define AWAIT_ALL AWAIT_ALL_IMPL
 
+#ifdef EXPERIMENTAL
+
 // Reductions for splittable tasks ///////////////////////////////////////////
 
+#warning "Reductions are experimental"
+
 #define REDUCE(op, var) REDUCE_IMPL(op, var)
+
+#endif // EXPERIMENTAL
 
 #endif // FUTURE_H

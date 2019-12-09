@@ -303,6 +303,8 @@ PROFILE_EXTERN_DECL(ENQ_DEQ_TASK);
 #define AWAIT_ALL_CALL \
 	for (struct future_node *hd = NULL; hd == NULL || (await_future_nodes(hd), 0);)
 
+#ifdef EXPERIMENTAL
+
 // REDUCE ////////////////////////////////////////////////////////////////////
 
 #ifdef LAZY_FUTURES
@@ -333,6 +335,8 @@ PROFILE_EXTERN_DECL(ENQ_DEQ_TASK);
 	} \
 	var; \
 })
+
+#endif // EXPERIMENTAL
 
 #endif // LAZY_FUTURES
 
