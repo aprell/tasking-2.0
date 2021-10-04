@@ -73,7 +73,7 @@ benchmark() {
 			| tee "$logfile" \
 			| grep "[Ee]lapsed" \
 			| cut -d ' ' -f 4 \
-			| utils/stats.lua \
+			| utils/stats.py \
 			| eval "$tableize"
 	else
 		./testrun.sh -r "$repetitions" "$prog" "$args" > "$logfile"
