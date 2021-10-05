@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 
+import argparse
 import statistics
 import sys
+
+from tabulate import tabulate
 
 
 def mean_rsd(numbers):
@@ -15,14 +18,18 @@ def mean_rsd(numbers):
 
 
 def quartiles(numbers):
-    return statistics.quantiles(numbers, n=4, method='inclusive')
+    return statistics.quantiles(numbers, n=4, method="inclusive")
 
 
 def deciles(numbers):
-    return statistics.quantiles(numbers, n=10, method='inclusive')
+    return statistics.quantiles(numbers, n=10, method="inclusive")
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--tabulate", action="store_true", help="tabulate output", required=False)
+    args = parser.parse_args()
+
     numbers = []
     for line in sys.stdin:
         numbers.append(float(line))
@@ -46,11 +53,17 @@ if __name__ == "__main__":
         D[-1],                        # 90th percentile / 9th decile
         max(numbers),                 # Maximum
         Q[-1] - Q[0],                 # Interquartile range
-        D[-1] - D[0],                 # Central 80 % range
+        D[-1] - D[0],                 # Interdecile range
         max(numbers) - min(numbers)   # Total range
     ]
 
-    print(",".join(headers))
-    print(",".join(map(lambda stat: f"{stat:.2f}", stats)), end='')
-    # Append mean ± relative standard deviation in percent
-    print(",{:.2f} ± {:.2f} %".format(*mean_rsd(numbers)))
+    if args.tabulate:
+        stats = [round(stat, 2) for stat in stats]
+        # Append mean ± relative standard deviation in percent
+        stats.append("{:.2f} ± {:.2f} %".format(*mean_rsd(numbers)))
+        print(tabulate([stats], headers=headers, tablefmt="pretty"))
+    else:
+        print(",".join(headers))
+        print(",".join(map(lambda stat: f"{stat:.2f}", stats)), end='')
+        # Append mean ± relative standard deviation in percent
+        print(",{:.2f} ± {:.2f} %".format(*mean_rsd(numbers)))

@@ -44,14 +44,6 @@ num_threads=${NUM_THREADS:-$(lscpu | grep ^CPU\(s\) | tr -d ' ' | cut -d ':' -f 
 repetitions=${repetitions:-10}
 shift $((OPTIND-1))
 
-if [ "$print_stats" = 1 ]; then
-	if [ -x "$(command -v column)" ]; then
-		tableize="column -s ',' -o ' | ' -t"
-	else
-		tableize="tr ',' '\t'"
-	fi
-fi
-
 benchmark() {
 	local prog=$1
 	shift
@@ -73,8 +65,7 @@ benchmark() {
 			| tee "$logfile" \
 			| grep "[Ee]lapsed" \
 			| cut -d ' ' -f 4 \
-			| utils/stats.py \
-			| eval "$tableize"
+			| utils/stats.py --tabulate
 	else
 		./testrun.sh -r "$repetitions" "$prog" "$args" > "$logfile"
 	fi
