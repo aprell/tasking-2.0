@@ -26,3 +26,5 @@ src/channel_mpi
 
 test/*.tmp
 test/*.ref
+
+__pycache__
