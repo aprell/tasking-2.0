@@ -61,13 +61,13 @@ benchmark() {
 	echo -n "NUM_THREADS=$num_threads " 1>&2
 
 	if [ "$print_stats" = 1 ]; then
-		./testrun.sh -r "$repetitions" "$prog" "$args" \
+		./testrun.py -r "$repetitions" "$prog" $args \
 			| tee "$logfile" \
 			| grep "[Ee]lapsed" \
 			| cut -d ' ' -f 4 \
 			| utils/stats.py --tabulate
 	else
-		./testrun.sh -r "$repetitions" "$prog" "$args" > "$logfile"
+		./testrun.py -r "$repetitions" "$prog" $args > "$logfile"
 	fi
 }
 
