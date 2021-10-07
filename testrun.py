@@ -31,9 +31,21 @@ def testrun(cmd, repetitions=10, stdout=None, stderr=None):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("-d", "--discard-output", dest="stdout", action="store_const", const=subprocess.DEVNULL, help="discard output", required=False)
-    parser.add_argument("-r", "--repetitions", type=int, default=10, help="number of repetitions (default is 10)", required=False)
-    parser.add_argument("cmd", help="program to run", nargs="*")
+
+    parser.add_argument("-d", "--discard-output", dest="stdout",
+                        action="store_const", const=subprocess.DEVNULL,
+                        help="discard output",
+                        required=False)
+
+    parser.add_argument("-r", "--repetitions",
+                        type=int, default=10,
+                        help="number of repetitions (default is 10)",
+                        required=False)
+
+    parser.add_argument("cmd",
+                        nargs="*",
+                        help="program to run")
+
     args = parser.parse_args()
 
     if args.cmd:

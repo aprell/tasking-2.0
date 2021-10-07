@@ -44,9 +44,21 @@ def benchmark(cmd, repetitions=10, show_statistics=False):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("-s", "--show-statistics", action="store_true", help="show summary statistics", required=False)
-    parser.add_argument("-r", "--repetitions", type=int, default=10, help="number of repetitions (default is 10)", required=False)
-    parser.add_argument("cmd", help="program to run", nargs="*")
+
+    parser.add_argument("-r", "--repetitions",
+                        type=int, default=10,
+                        help="number of repetitions (default is 10)",
+                        required=False)
+
+    parser.add_argument("-s", "--show-statistics",
+                        action="store_true",
+                        help="show summary statistics",
+                        required=False)
+
+    parser.add_argument("cmd",
+                        nargs="*",
+                        help="program to run")
+
     args = parser.parse_args()
 
     os.makedirs("benchmark.output", exist_ok=True)

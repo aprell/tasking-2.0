@@ -62,7 +62,12 @@ def print_stats(numbers, tabulate=True):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--tabulate", action="store_true", help="tabulate output", required=False)
+
+    parser.add_argument("-t", "--tabulate",
+                        action="store_true",
+                        help="tabulate output",
+                        required=False)
+
     args = parser.parse_args()
 
     numbers = []
