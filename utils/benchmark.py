@@ -6,7 +6,7 @@ import re
 import subprocess
 
 from testrun import eprint, testrun
-from utils.stats import print_stats
+from stats import print_stats
 
 
 def get_num_threads():

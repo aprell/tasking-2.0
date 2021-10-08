@@ -59,7 +59,6 @@ def print_stats(numbers, tabulate=True):
         print(",{:.2f} ± {:.2f} %".format(*mean_rsd(numbers)))
 
 
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
