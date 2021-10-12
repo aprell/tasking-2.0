@@ -12,11 +12,10 @@ PASS = "\033[32m"
 
 
 def eprint(*args, **kwargs):
-    print(*args, file=sys.stderr, **kwargs)
+    print(*args, file=sys.stderr, flush=True, **kwargs)
 
 
 def testrun(cmd, repetitions=10, stdout=None, stderr=None):
-    success = True
     eprint(" ".join(cmd) + ": ", end='')
 
     try:
@@ -24,9 +23,9 @@ def testrun(cmd, repetitions=10, stdout=None, stderr=None):
             eprint(".", end='')
             subprocess.run(cmd, stdout=stdout, stderr=stderr, check=True)
     except subprocess.CalledProcessError:
-        success = False
+        eprint(f"\b{BOLD}{FAIL}X{RESET}", end='')
 
-    eprint(f"{BOLD}{FAIL} X{RESET}" if not success else "")
+    eprint()
 
 
 if __name__ == "__main__":
