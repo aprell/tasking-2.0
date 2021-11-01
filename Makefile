@@ -1,7 +1,13 @@
-include common-gcc.mk
-
 BUILDDIR := build
 LIBDIR := lib
+
+ifeq ($(CC),gcc)
+  include gcc.mk
+else ifeq ($(CC),icc)
+  include icc.mk
+else
+  include gcc.mk
+endif
 
 CPPFLAGS += -DNTIME
 CPPFLAGS += -DSTEAL=adaptive
@@ -20,77 +26,96 @@ CFLAGS += -pthread
 LDFLAGS += -pthread
 
 ifeq ($(SANITIZE),1)
-  SANITIZE := -fsanitize=address,undefined
-  CFLAGS += $(SANITIZE)
-  LDFLAGS += $(SANITIZE)
+  CFLAGS += -fsanitize=address,undefined
+  LDFLAGS += -fsanitize=address,undefined
 endif
 
 # Profile with coz run --- ./prog args
 ifeq ($(USE_COZ),1)
-  COZ_ROOT := $(HOME)/github/coz
+  $(warning Please update COZ_ROOT)
+  COZ_ROOT := path/to/coz
   CPPFLAGS += -DUSE_COZ
   CFLAGS += -g
   INCLUDE += -I$(COZ_ROOT)/include
   LDLIBS += -ldl
 endif
 
+#//// SOURCE FILES /////////////////////////////////////////////////////////#
+
 tasking_SRCS := \
-channel.c \
-deque.c \
-runtime.c \
-tasking.c
+  channel.c \
+  deque.c \
+  runtime.c \
+  tasking.c
 
 SRCS := \
-barrier.c \
-bpc.c \
-brg_sha1.c \
-cilksort.c \
-fib.c \
-fibgen.c \
-fib-like.c \
-getoptions.c \
-loopsched.c \
-lu.c \
-mm.c \
-mm_dac.c \
-nbody3.c \
-nqueens.c \
-qsort.c \
-spc.c \
-task_example.c \
-test_async.c \
-uts.c \
-uts_seq.c \
-uts_shm.c \
-$(tasking_SRCS)
+  barrier.c \
+  bpc.c \
+  brg_sha1.c \
+  cilksort.c \
+  fib.c \
+  fibgen.c \
+  fib-like.c \
+  getoptions.c \
+  loopsched.c \
+  lu.c \
+  mm.c \
+  mm_dac.c \
+  nbody3.c \
+  nqueens.c \
+  qsort.c \
+  spc.c \
+  task_example.c \
+  test_async.c \
+  uts.c \
+  uts_seq.c \
+  uts_shm.c \
+  $(tasking_SRCS)
 
 #//// TEST & BENCHMARK PROGRAMS ////////////////////////////////////////////#
 
-PROGS := barrier bpc cilksort fib fibgen fib-like loopsched lu mm mm_dac
-PROGS += nbody3 nqueens qsort spc task_example test_async uts-par uts-seq
+PROGS := \
+  barrier \
+  bpc \
+  cilksort \
+  fib \
+  fibgen \
+  fib-like \
+  loopsched \
+  lu \
+  mm \
+  mm_dac \
+  nbody3 \
+  nqueens \
+  qsort \
+  spc \
+  task_example \
+  test_async \
+  uts-par \
+  uts-seq
 
-barrier_SRCS 	  := barrier.c $(tasking_SRCS)
-bpc_SRCS 		  := bpc.c $(tasking_SRCS)
+barrier_SRCS      := barrier.c $(tasking_SRCS)
+bpc_SRCS          := bpc.c $(tasking_SRCS)
 cilksort_SRCS     := cilksort.c getoptions.c $(tasking_SRCS)
-fib_SRCS 	      := fib.c $(tasking_SRCS)
-fibgen_SRCS 	  := fibgen.c $(tasking_SRCS)
-fib_like_SRCS 	  := fib-like.c $(tasking_SRCS)
+fib_SRCS          := fib.c $(tasking_SRCS)
+fibgen_SRCS       := fibgen.c $(tasking_SRCS)
+fib_like_SRCS     := fib-like.c $(tasking_SRCS)
 loopsched_SRCS    := loopsched.c $(tasking_SRCS)
-lu_SRCS 		  := lu.c $(tasking_SRCS)
-mm_SRCS 		  := mm.c $(tasking_SRCS)
-mm_dac_SRCS 	  := mm_dac.c $(tasking_SRCS)
-nbody3_SRCS 	  := nbody3.c $(tasking_SRCS)
+lu_SRCS           := lu.c $(tasking_SRCS)
+mm_SRCS           := mm.c $(tasking_SRCS)
+mm_dac_SRCS       := mm_dac.c $(tasking_SRCS)
+nbody3_SRCS       := nbody3.c $(tasking_SRCS)
 nqueens_SRCS      := nqueens.c $(tasking_SRCS)
-qsort_SRCS 		  := qsort.c $(tasking_SRCS)
-spc_SRCS 		  := spc.c $(tasking_SRCS)
+qsort_SRCS        := qsort.c $(tasking_SRCS)
+spc_SRCS          := spc.c $(tasking_SRCS)
 task_example_SRCS := task_example.c $(tasking_SRCS)
 test_async_SRCS   := test_async.c $(tasking_SRCS)
-uts_par_SRCS	  := uts_shm.c uts.c brg_sha1.c $(tasking_SRCS)
-uts_seq_SRCS	  := uts_seq.c uts.c brg_sha1.c
+uts_par_SRCS      := uts_shm.c uts.c brg_sha1.c $(tasking_SRCS)
+uts_seq_SRCS      := uts_seq.c uts.c brg_sha1.c
 
-nbody3_LIBS 	  := m
-uts_par_LIBS	  := m
-uts_seq_LIBS	  := m
+nbody3_LIBS  := m
+uts_par_LIBS := m
+uts_seq_LIBS := m
 
 #///////////////////////////////////////////////////////////////////////////#
 
@@ -114,6 +139,18 @@ $(BUILDDIR)/libtasking.a: $(addprefix $(BUILDDIR)/,$(tasking_SRCS:.c=.o))
 
 clean::
 	rm -rf $(BUILDDIR) $(LIBDIR)
+
+help:
+	@echo
+	@echo "Usage:"
+	@echo "  make (all)         Build libtasking.a and all test programs"
+	@echo "  make libtasking    Build libtasking.a"
+	@echo "  make test          Build all test programs"
+	@echo "  make <prog>        Build test program <prog>"
+	@echo "  make clean         Remove all build artifacts"
+	@echo
+
+.PHONY: all test libtasking clean help
 
 #//// EXPERIMENTAL /////////////////////////////////////////////////////////#
 
