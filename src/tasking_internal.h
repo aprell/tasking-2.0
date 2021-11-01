@@ -51,7 +51,7 @@ static inline void run_task(Task *task)
 	set_current_task(this_);
 	if (task->splittable) {
 		// We have executed |end-start| iterations
-		int n = abs(task->end - task->start);
+		int n = labs(task->end - task->start);
 		num_tasks_exec += n;
 	} else {
 		num_tasks_exec++;

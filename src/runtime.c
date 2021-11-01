@@ -970,7 +970,7 @@ static void handle_steal_request(struct steal_request *req)
 	if (req->ID == ID) {
 		assert(req->state != STATE_FAILED);
 		task = get_current_task();
-		long tasks_left = task && task->splittable ? abs(task->end - task->cur) : 0;
+		long tasks_left = task && task->splittable ? labs(task->end - task->cur) : 0;
 		// Got own steal request
 		// Forget about it if we have more tasks than previously
 #ifdef STEAL_EARLY
@@ -1039,7 +1039,7 @@ static void handle_steal_request(struct steal_request *req)
 
 // Loop task with iterations left for splitting?
 #define SPLITTABLE(t) \
-	((bool)((t) != NULL && (t)->splittable && abs((t)->end - (t)->cur) > 1))
+	((bool)((t) != NULL && (t)->splittable && labs((t)->end - (t)->cur) > 1))
 
 // Convenience function for handling a steal request
 // Returns true if work is available, false otherwise
@@ -1451,12 +1451,12 @@ static inline long split_half(Task *task)
 // Split iteration range based on the number of workers
 static inline long split_guided(Task *task)
 {
-	long iters_left = abs(task->end - task->cur);
+	long iters_left = labs(task->end - task->cur);
 
 	assert(iters_left > 1);
 
 	// This is basically what guided scheduling in OpenMP does
-	long chunk = max(abs(task->end - task->start) / num_workers, 1);
+	long chunk = max(labs(task->end - task->start) / num_workers, 1);
 
 	if (iters_left <= chunk) {
 		return split_half(task);
@@ -1470,7 +1470,7 @@ static inline long split_guided(Task *task)
 // Split iteration range based on the number of steal requests
 static inline long split_adaptive(Task *task)
 {
-	long iters_left = abs(task->end - task->cur);
+	long iters_left = labs(task->end - task->cur);
 	long num_idle, chunk;
 
 	assert(iters_left > 1);
