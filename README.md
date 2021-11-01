@@ -9,7 +9,7 @@ programming language][4].
 ## Build
 On x86-64 GNU/Linux:
 ```console
-$ make
+$ make CC=gcc
 (...)
 ```
 
